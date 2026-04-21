@@ -1,0 +1,2323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NVIDIA NIM Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<style>
+/* ===================== iOS 26 Liquid Glass Design System ===================== */
+*{margin:0;padding:0;box-sizing:border-box}
+
+:root{
+  /* 核心色彩系统 - Liquid Glass */
+  --bg-primary: #0a0e1a;
+  --bg-secondary: #0f1525;
+  --bg-glass: rgba(255, 255, 255, 0.03);
+  --bg-glass-hover: rgba(255, 255, 255, 0.06);
+  --bg-glass-active: rgba(255, 255, 255, 0.1);
+  
+  /* 边框与光效 */
+  --border-glass: rgba(255, 255, 255, 0.08);
+  --border-glass-hover: rgba(255, 255, 255, 0.15);
+  --glow-primary: rgba(118, 185, 0, 0.4);
+  --glow-secondary: rgba(0, 212, 170, 0.3);
+  
+  /* 文字层级 */
+  --text-primary: rgba(255, 255, 255, 0.95);
+  --text-secondary: rgba(255, 255, 255, 0.65);
+  --text-tertiary: rgba(255, 255, 255, 0.4);
+  
+  /* 功能色 - 更柔和 */
+  --green: #7dd93a;
+  --green-glow: rgba(125, 217, 58, 0.3);
+  --cyan: #00e5b8;
+  --cyan-glow: rgba(0, 229, 184, 0.3);
+  --blue: #5b9aff;
+  --blue-glow: rgba(91, 154, 255, 0.3);
+  --purple: #b89fff;
+  --purple-glow: rgba(184, 159, 255, 0.3);
+  --yellow: #ffb84d;
+  --yellow-glow: rgba(255, 184, 77, 0.3);
+  --red: #ff6b6b;
+  --red-glow: rgba(255, 107, 107, 0.3);
+  
+  /* 圆角系统 */
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 20px;
+  --radius-xl: 24px;
+  
+  /* 阴影系统 - 多层柔和阴影 */
+  --shadow-sm: 
+    0 2px 8px rgba(0, 0, 0, 0.2),
+    0 1px 2px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --shadow-md: 
+    0 4px 16px rgba(0, 0, 0, 0.25),
+    0 2px 4px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow-lg: 
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    0 4px 8px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --shadow-xl: 
+    0 16px 48px rgba(0, 0, 0, 0.35),
+    0 8px 16px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  
+  /* 动画曲线 - iOS弹簧效果 */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+/* 浅色主题 */
+[data-theme="light"]{
+  --bg-primary: #f5f7fa;
+  --bg-secondary: #ffffff;
+  --bg-glass: rgba(255, 255, 255, 0.65);
+  --bg-glass-hover: rgba(255, 255, 255, 0.78);
+  --bg-glass-active: rgba(255, 255, 255, 0.9);
+  --border-glass: rgba(0, 0, 0, 0.08);
+  --border-glass-hover: rgba(0, 0, 0, 0.12);
+  --text-primary: rgba(0, 0, 0, 0.9);
+  --text-secondary: rgba(0, 0, 0, 0.6);
+  --text-tertiary: rgba(0, 0, 0, 0.4);
+  --shadow-sm: 
+    0 2px 8px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --shadow-md: 
+    0 4px 16px rgba(0, 0, 0, 0.1),
+    0 2px 4px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --shadow-lg: 
+    0 8px 32px rgba(0, 0, 0, 0.12),
+    0 4px 8px rgba(0, 0, 0, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
+  --shadow-xl: 
+    0 16px 48px rgba(0, 0, 0, 0.15),
+    0 8px 16px rgba(0, 0, 0, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
+}
+
+/* 全局基础样式 */
+html{scroll-behavior:smooth}
+body{
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+  position: relative;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 动态背景 - 流体渐变 */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    radial-gradient(ellipse at 20% 20%, rgba(118, 185, 0, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 80%, rgba(0, 212, 170, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(91, 154, 255, 0.04) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+  animation: bgPulse 20s ease-in-out infinite alternate;
+}
+
+@keyframes bgPulse {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{
+  background: var(--border-glass);
+  border-radius:10px;
+  transition: all 0.3s var(--ease-smooth);
+}
+::-webkit-scrollbar-thumb:hover{background: var(--border-glass-hover)}
+
+/* ===================== 顶部导航 - Liquid Glass ===================== */
+.topbar{
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(10, 14, 26, 0.72);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border-bottom: 1px solid var(--border-glass);
+  padding: 0 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+  box-shadow: var(--shadow-md);
+  animation: slideDown 0.6s var(--ease-spring);
+}
+
+@keyframes slideDown {
+  from { 
+    opacity: 0; 
+    transform: translateY(-20px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+}
+
+.topbar-logo{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  background: linear-gradient(135deg, var(--green) 0%, var(--cyan) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  position: relative;
+  transition: transform 0.3s var(--ease-spring);
+}
+
+.topbar-logo:hover {
+  transform: scale(1.02);
+}
+
+.topbar-logo svg {
+  flex-shrink: 0;
+  filter: drop-shadow(0 2px 8px var(--green-glow));
+  transition: transform 0.4s var(--ease-spring);
+}
+
+.topbar-logo:hover svg {
+  transform: rotateY(360deg);
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.theme-toggle{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-glass);
+  border: 1px solid var(--border-glass);
+  backdrop-filter: blur(20px);
+  transition: all 0.3s var(--ease-spring);
+  position: relative;
+  overflow: hidden;
+}
+
+.theme-toggle::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 60%);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.theme-toggle:hover {
+  border-color: var(--border-glass-hover);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.theme-toggle:hover::before {
+  opacity: 1;
+}
+
+.theme-toggle-icon {
+  font-size: 16px;
+  display: inline-block;
+  transition: transform 0.5s var(--ease-bounce);
+}
+
+.theme-toggle:hover .theme-toggle-icon {
+  transform: rotate(15deg) scale(1.1);
+}
+
+.status-dot{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-glass);
+  border: 1px solid var(--border-glass);
+  backdrop-filter: blur(20px);
+}
+
+.dot{
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 12px var(--green-glow), 0 0 24px var(--green-glow);
+  animation: breathe 3s ease-in-out infinite;
+  position: relative;
+}
+
+.dot::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: var(--green);
+  opacity: 0.3;
+  animation: pulseRing 3s ease-in-out infinite;
+}
+
+@keyframes breathe{
+  0%, 100%{ 
+    opacity: 1; 
+    transform: scale(1);
+    box-shadow: 0 0 12px var(--green-glow);
+  }
+  50%{ 
+    opacity: 0.6; 
+    transform: scale(0.85);
+    box-shadow: 0 0 6px var(--green-glow);
+  }
+}
+
+@keyframes pulseRing {
+  0%, 100% { transform: scale(1); opacity: 0.3; }
+  50% { transform: scale(1.8); opacity: 0; }
+}
+
+.uptime-badge{
+  font-size: 12px;
+  color: var(--text-tertiary);
+  background: var(--bg-glass);
+  border: 1px solid var(--border-glass);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-family: 'SF Mono', 'Courier New', monospace;
+  backdrop-filter: blur(20px);
+  letter-spacing: 0.5px;
+}
+
+/* ===================== Tab 导航 - Liquid Glass ===================== */
+.tabs{
+  display: flex;
+  background: rgba(10, 14, 26, 0.5);
+  backdrop-filter: blur(30px);
+  -webkit-backdrop-filter: blur(30px);
+  border-bottom: 1px solid var(--border-glass);
+  padding: 0 28px;
+  gap: 6px;
+  position: relative;
+  z-index: 99;
+}
+
+.tab-btn{
+  position: relative;
+  padding: 16px 22px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border: none;
+  background: none;
+  border-bottom: 2px solid transparent;
+  transition: all 0.35s var(--ease-spring);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  letter-spacing: -0.2px;
+}
+
+.tab-btn::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 50%;
+  width: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--green), var(--cyan));
+  transition: all 0.35s var(--ease-spring);
+  transform: translateX(-50%);
+  border-radius: 2px;
+  box-shadow: 0 0 12px var(--green-glow);
+}
+
+.tab-btn:hover {
+  color: var(--text-secondary);
+  transform: translateY(-1px);
+}
+
+.tab-btn.active {
+  color: var(--green);
+}
+
+.tab-btn.active::after {
+  width: 70%;
+}
+
+.tab-badge{
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border-glass);
+  color: var(--text-tertiary);
+  font-weight: 600;
+  transition: all 0.3s var(--ease-spring);
+}
+
+.tab-btn.active .tab-badge {
+  background: rgba(125, 217, 58, 0.15);
+  border-color: rgba(125, 217, 58, 0.3);
+  color: var(--green);
+  box-shadow: 0 0 12px var(--green-glow);
+}
+
+/* ===================== 内容区 ===================== */
+.tab-content{
+  display: none;
+  padding: 28px;
+  animation: fadeSlideIn 0.5s var(--ease-spring);
+  position: relative;
+  z-index: 1;
+}
+
+.tab-content.active{display:block}
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ===================== 统计卡片 - Liquid Glass Cards ===================== */
+.kpi-grid{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.kpi-card{
+  background: var(--bg-glass);
+  backdrop-filter: blur(30px) saturate(150%);
+  -webkit-backdrop-filter: blur(30px) saturate(150%);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  padding: 22px 24px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.4s var(--ease-spring);
+  cursor: default;
+  box-shadow: var(--shadow-sm);
+}
+
+/* 卡片光泽效果 */
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(255, 255, 255, 0.3) 50%, 
+    transparent 100%
+  );
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+
+.kpi-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, 
+    rgba(125, 217, 58, 0.05) 0%, 
+    transparent 60%
+  );
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+
+.kpi-card:hover {
+  border-color: var(--border-glass-hover);
+  transform: translateY(-4px) scale(1.01);
+  box-shadow: var(--shadow-lg);
+}
+
+.kpi-card:hover::before {
+  opacity: 1;
+}
+
+.kpi-card:hover::after {
+  opacity: 1;
+}
+
+.kpi-icon {
+  font-size: 22px;
+  margin-bottom: 12px;
+  display: inline-block;
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.2));
+  transition: transform 0.4s var(--ease-bounce);
+}
+
+.kpi-card:hover .kpi-icon {
+  transform: scale(1.15) rotate(-5deg);
+}
+
+.kpi-value{
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -1px;
+  transition: all 0.3s var(--ease-spring);
+  position: relative;
+}
+
+.kpi-label{
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 8px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 500;
+}
+
+.kpi-sub{
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 6px;
+  opacity: 0.8;
+}
+
+/* KPI 卡片颜色变体 */
+.kpi-green .kpi-value { 
+  color: var(--green);
+  text-shadow: 0 0 20px var(--green-glow);
+}
+.kpi-cyan .kpi-value { 
+  color: var(--cyan);
+  text-shadow: 0 0 20px var(--cyan-glow);
+}
+.kpi-purple .kpi-value { 
+  color: var(--purple);
+  text-shadow: 0 0 20px var(--purple-glow);
+}
+.kpi-yellow .kpi-value { 
+  color: var(--yellow);
+  text-shadow: 0 0 20px var(--yellow-glow);
+}
+.kpi-blue .kpi-value { 
+  color: var(--blue);
+  text-shadow: 0 0 20px var(--blue-glow);
+}
+
+/* ===================== 区块标题 ===================== */
+.section-hd{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.section-title{
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.section-title::before{
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 16px;
+  background: linear-gradient(180deg, var(--green), var(--cyan));
+  border-radius: 3px;
+  box-shadow: 0 0 8px var(--green-glow);
+}
+
+/* ===================== 图表容器 - Liquid Glass ===================== */
+.chart-grid{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-bottom: 28px;
+}
+
+.chart-grid-3{
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 18px;
+  margin-bottom: 28px;
+}
+
+@media(max-width:1100px){.chart-grid-3{grid-template-columns:1fr 1fr}}
+@media(max-width:768px){.chart-grid,.chart-grid-3{grid-template-columns:1fr}}
+
+.chart-box{
+  background: var(--bg-glass);
+  backdrop-filter: blur(30px) saturate(150%);
+  -webkit-backdrop-filter: blur(30px) saturate(150%);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  padding: 22px;
+  transition: all 0.4s var(--ease-spring);
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+}
+
+.chart-box::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(255, 255, 255, 0.25) 50%, 
+    transparent 100%
+  );
+}
+
+.chart-box:hover {
+  border-color: var(--border-glass-hover);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.chart-hd{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.chart-title{
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: -0.2px;
+}
+
+.chart-toolbar{display:flex;gap:6px}
+
+.chart-tab{
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-glass);
+  background: var(--bg-glass);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 0.3s var(--ease-spring);
+  backdrop-filter: blur(10px);
+  font-weight: 500;
+}
+
+.chart-tab:hover{
+  border-color: var(--border-glass-hover);
+  color: var(--text-secondary);
+  transform: translateY(-1px);
+}
+
+.chart-tab.active{
+  background: rgba(125, 217, 58, 0.15);
+  border-color: rgba(125, 217, 58, 0.35);
+  color: var(--green);
+  box-shadow: 0 0 16px var(--green-glow);
+}
+
+.chart-body{width:100%;position:relative;z-index:1}
+
+/* ===================== 表格 - Liquid Glass ===================== */
+.table-box{
+  background: var(--bg-glass);
+  backdrop-filter: blur(30px) saturate(150%);
+  -webkit-backdrop-filter: blur(30px) saturate(150%);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  margin-bottom: 28px;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+}
+
+table{width:100%;border-collapse:collapse}
+
+thead th{
+  background: rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(20px);
+  padding: 14px 18px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  white-space: nowrap;
+  position: relative;
+}
+
+thead th::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    var(--border-glass) 20%, 
+    var(--border-glass) 80%, 
+    transparent 100%
+  );
+}
+
+tbody td{
+  padding: 14px 18px;
+  font-size: 13px;
+  border-top: 1px solid var(--border-glass);
+  transition: all 0.3s var(--ease-smooth);
+  position: relative;
+}
+
+tbody tr {
+  transition: all 0.3s var(--ease-smooth);
+}
+
+tbody tr:hover td{
+  background: var(--bg-glass-hover);
+  backdrop-filter: blur(10px);
+}
+
+tbody tr:hover {
+  transform: scale(1.005);
+}
+
+.mono{
+  font-family: 'SF Mono', 'Courier New', monospace;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* ===================== Badge - Liquid Glass Pills ===================== */
+.badge{
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  backdrop-filter: blur(10px);
+  border: 1px solid;
+  transition: all 0.3s var(--ease-spring);
+  position: relative;
+  overflow: hidden;
+}
+
+.badge::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, transparent 60%);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.badge:hover::before {
+  opacity: 1;
+}
+
+.badge-ok{
+  background: rgba(125, 217, 58, 0.12);
+  color: var(--green);
+  border-color: rgba(125, 217, 58, 0.25);
+  box-shadow: 0 0 12px var(--green-glow);
+}
+.badge-err{
+  background: rgba(255, 107, 107, 0.12);
+  color: var(--red);
+  border-color: rgba(255, 107, 107, 0.25);
+  box-shadow: 0 0 12px var(--red-glow);
+}
+.badge-warn{
+  background: rgba(255, 184, 77, 0.12);
+  color: var(--yellow);
+  border-color: rgba(255, 184, 77, 0.25);
+  box-shadow: 0 0 12px var(--yellow-glow);
+}
+.badge-info{
+  background: rgba(91, 154, 255, 0.12);
+  color: var(--blue);
+  border-color: rgba(91, 154, 255, 0.25);
+  box-shadow: 0 0 12px var(--blue-glow);
+}
+.badge-purple{
+  background: rgba(184, 159, 255, 0.12);
+  color: var(--purple);
+  border-color: rgba(184, 159, 255, 0.25);
+  box-shadow: 0 0 12px var(--purple-glow);
+}
+
+/* ===================== 进度条 - Liquid Progress ===================== */
+.progress{
+  width: 100%;
+  height: 6px;
+  background: var(--bg-glass);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-top: 8px;
+  position: relative;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.progress-fill{
+  height: 100%;
+  border-radius: 10px;
+  transition: width 0.8s var(--ease-spring);
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.3) 50%,
+    transparent 100%
+  );
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ===================== 按钮 - Liquid Glass Buttons ===================== */
+.btn{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: var(--radius-sm);
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.35s var(--ease-spring);
+  white-space: nowrap;
+  position: relative;
+  overflow: hidden;
+  letter-spacing: -0.2px;
+}
+
+.btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.2) 50%,
+    transparent 100%
+  );
+  transition: left 0.5s var(--ease-smooth);
+}
+
+.btn:hover::before {
+  left: 100%;
+}
+
+.btn-primary{
+  background: linear-gradient(135deg, var(--green) 0%, #6bc720 100%);
+  color: #000;
+  box-shadow: 0 4px 16px var(--green-glow), inset 0 1px 0 rgba(255,255,255,0.3);
+}
+
+.btn-primary:hover{
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 8px 24px var(--green-glow), inset 0 1px 0 rgba(255,255,255,0.4);
+}
+
+.btn-primary:active{
+  transform: translateY(0) scale(0.98);
+}
+
+.btn-primary:disabled{
+  background: var(--bg-glass);
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-ghost{
+  background: var(--bg-glass);
+  border: 1px solid var(--border-glass);
+  color: var(--text-secondary);
+  backdrop-filter: blur(10px);
+}
+
+.btn-ghost:hover{
+  border-color: var(--green);
+  color: var(--green);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px var(--green-glow);
+}
+
+.btn-sm{
+  padding: 7px 16px;
+  font-size: 12px;
+}
+
+/* ===================== Toggle Switch - Liquid Toggle ===================== */
+.toggle{
+  position: relative;
+  width: 44px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.toggle input{opacity:0;width:0;height:0}
+
+.toggle-slider{
+  position: absolute;
+  inset: 0;
+  background: var(--bg-glass);
+  border: 1px solid var(--border-glass);
+  border-radius: 26px;
+  cursor: pointer;
+  transition: all 0.4s var(--ease-spring);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-sm);
+}
+
+.toggle-slider:before{
+  position: absolute;
+  content: '';
+  width: 20px;
+  height: 20px;
+  left: 3px;
+  bottom: 3px;
+  background: linear-gradient(135deg, #fff 0%, #f0f0f0 100%);
+  border-radius: 50%;
+  transition: all 0.4s var(--ease-spring);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.toggle input:checked + .toggle-slider{
+  background: linear-gradient(135deg, var(--green) 0%, #6bc720 100%);
+  border-color: transparent;
+  box-shadow: 0 0 20px var(--green-glow);
+}
+
+.toggle input:checked + .toggle-slider:before{
+  transform: translateX(18px);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+}
+
+/* ===================== 搜索框 - Liquid Search ===================== */
+.search-wrap{
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+}
+
+.search-wrap input{
+  width: 100%;
+  background: var(--bg-glass);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm);
+  padding: 10px 16px 10px 40px;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: all 0.35s var(--ease-spring);
+  backdrop-filter: blur(20px);
+}
+
+.search-wrap input::placeholder{
+  color: var(--text-tertiary);
+}
+
+.search-wrap input:focus{
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px var(--green-glow), var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.search-icon{
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  font-size: 14px;
+  pointer-events: none;
+  transition: all 0.3s var(--ease-spring);
+}
+
+.search-wrap input:focus + .search-icon,
+.search-wrap input:focus ~ .search-icon {
+  color: var(--green);
+  transform: translateY(-50%) scale(1.1);
+}
+
+/* ===================== 模型卡片 - Liquid Model Card ===================== */
+.model-group-hd{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 0;
+  margin-bottom: 10px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.3s var(--ease-spring);
+  border-radius: var(--radius-sm);
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.model-group-hd:hover {
+  background: var(--bg-glass-hover);
+  transform: translateX(4px);
+}
+
+.model-group-title{
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.provider-icon{
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.2));
+  transition: transform 0.4s var(--ease-bounce);
+}
+
+.model-group-hd:hover .provider-icon {
+  transform: scale(1.15) rotate(-5deg);
+}
+
+.group-count{
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border-glass);
+  color: var(--text-tertiary);
+  font-weight: 600;
+  backdrop-filter: blur(10px);
+}
+
+.group-arrow{
+  color: var(--text-tertiary);
+  font-size: 11px;
+  transition: all 0.4s var(--ease-spring);
+  margin-left: auto;
+}
+
+.group-collapsed .group-arrow{
+  transform: rotate(-90deg);
+}
+
+.model-grid{
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.model-card{
+  background: var(--bg-glass);
+  backdrop-filter: blur(25px) saturate(140%);
+  -webkit-backdrop-filter: blur(25px) saturate(140%);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: all 0.4s var(--ease-spring);
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+}
+
+.model-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(255, 255, 255, 0.2) 50%, 
+    transparent 100%
+  );
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+
+.model-card:hover{
+  border-color: var(--border-glass-hover);
+  transform: translateY(-3px) scale(1.01);
+  box-shadow: var(--shadow-md);
+}
+
+.model-card:hover::before {
+  opacity: 1;
+}
+
+.model-card.disabled{
+  opacity: 0.45;
+  filter: grayscale(0.5);
+}
+
+.model-name{
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 190px;
+  letter-spacing: -0.2px;
+  transition: color 0.3s;
+}
+
+.model-card:hover .model-name {
+  color: var(--green);
+}
+
+.model-id{
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 3px;
+  word-break: break-all;
+}
+
+/* ===================== 时间轴筛选 ===================== */
+.time-filter{display:flex;gap:6px;flex-wrap:wrap}
+
+.tf-btn{
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-glass);
+  background: var(--bg-glass);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 0.3s var(--ease-spring);
+  backdrop-filter: blur(10px);
+  font-weight: 500;
+}
+
+.tf-btn:hover{
+  color: var(--text-secondary);
+  border-color: var(--border-glass-hover);
+  transform: translateY(-1px);
+}
+
+.tf-btn.active{
+  background: rgba(125, 217, 58, 0.15);
+  border-color: rgba(125, 217, 58, 0.35);
+  color: var(--green);
+  box-shadow: 0 0 16px var(--green-glow);
+}
+
+/* ===================== 请求记录 ===================== */
+.record-list{
+  max-height: 420px;
+  overflow-y: auto;
+  position: relative;
+}
+
+.record-row{
+  display: grid;
+  grid-template-columns: 90px 1fr 80px 80px 80px 70px 80px 50px;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border-glass);
+  font-size: 12px;
+  transition: all 0.3s var(--ease-smooth);
+  position: relative;
+}
+
+.record-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(180deg, var(--green), var(--cyan));
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.record-row:hover{
+  background: var(--bg-glass-hover);
+  backdrop-filter: blur(10px);
+  transform: scale(1.005);
+}
+
+.record-row:hover::before {
+  opacity: 1;
+}
+
+.record-header{
+  background: rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(20px);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.record-header::before {
+  display: none;
+}
+
+/* ===================== 模型统计栏 ===================== */
+.model-stats-bar{
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 24px;
+  background: var(--bg-glass);
+  backdrop-filter: blur(30px) saturate(150%);
+  -webkit-backdrop-filter: blur(30px) saturate(150%);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+}
+
+.model-stats-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(255, 255, 255, 0.25) 50%, 
+    transparent 100%
+  );
+}
+
+.mstat{
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+  z-index: 1;
+}
+
+.mstat-v{
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
+  transition: all 0.3s var(--ease-spring);
+}
+
+.mstat-l{
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 500;
+}
+
+.divv{
+  width: 1px;
+  height: 32px;
+  background: linear-gradient(180deg, transparent 0%, var(--border-glass) 50%, transparent 100%);
+}
+
+.ms-spacer{
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: relative;
+  z-index: 1;
+}
+
+/* ===================== 过滤按钮组 ===================== */
+.filter-grp{display:flex;gap:6px}
+
+.fg-btn{
+  font-size: 12px;
+  padding: 7px 16px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-glass);
+  background: var(--bg-glass);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 0.3s var(--ease-spring);
+  backdrop-filter: blur(10px);
+  font-weight: 500;
+}
+
+.fg-btn:hover{
+  color: var(--text-secondary);
+  transform: translateY(-1px);
+}
+
+.fg-btn.active{
+  background: rgba(125, 217, 58, 0.15);
+  border-color: rgba(125, 217, 58, 0.35);
+  color: var(--green);
+  box-shadow: 0 0 16px var(--green-glow);
+}
+
+/* ===================== 工具栏 ===================== */
+.toolbar{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+/* ===================== 空状态 ===================== */
+.empty{
+  text-align: center;
+  padding: 70px 20px;
+  color: var(--text-tertiary);
+}
+
+.empty-icon{
+  font-size: 48px;
+  margin-bottom: 16px;
+  display: inline-block;
+  animation: float 3s ease-in-out infinite;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.2));
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.empty p{
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* ================= Loading Spin ===================== */
+.spin{
+  animation: spinRotate 1s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spinRotate{
+  to{transform:rotate(360deg)}
+}
+
+/* ===================== Toast - Liquid Toast ===================== */
+#toast{
+  position: fixed;
+  bottom: 32px;
+  right: 32px;
+  padding: 14px 24px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0;
+  transform: translateY(12px) scale(0.95);
+  transition: all 0.4s var(--ease-spring);
+  z-index: 9999;
+  pointer-events: none;
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  box-shadow: var(--shadow-xl);
+  border: 1px solid var(--border-glass);
+  letter-spacing: -0.2px;
+}
+
+#toast.show{
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+#toast.success{
+  background: rgba(125, 217, 58, 0.92);
+  color: #000;
+  border-color: rgba(125, 217, 58, 0.4);
+  box-shadow: 0 8px 32px var(--green-glow), var(--shadow-xl);
+}
+
+#toast.error{
+  background: rgba(255, 107, 107, 0.92);
+  color: #fff;
+  border-color: rgba(255, 107, 107, 0.4);
+  box-shadow: 0 8px 32px var(--red-glow), var(--shadow-xl);
+}
+
+#toast.info{
+  background: rgba(91, 154, 255, 0.92);
+  color: #fff;
+  border-color: rgba(91, 154, 255, 0.4);
+  box-shadow: 0 8px 32px var(--blue-glow), var(--shadow-xl);
+}
+
+/* ===================== 响应式设计 ===================== */
+@media(max-width:640px){
+  .topbar{
+    padding: 0 16px;
+    height: 56px;
+  }
+  
+  .tab-content{padding: 16px}
+  
+  .tabs{padding: 0 16px}
+  
+  .kpi-grid{
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  
+  .record-row{
+    grid-template-columns: 80px 1fr 70px 70px;
+    font-size: 11px;
+    gap: 6px;
+  }
+  
+  .record-row>*:nth-child(5),
+  .record-row>*:nth-child(6),
+  .record-row>*:nth-child(7),
+  .record-row>*:nth-child(8){
+    display:none
+  }
+  
+  .model-stats-bar{
+    gap: 16px;
+    padding: 16px;
+  }
+  
+  .mstat-v{
+    font-size: 20px;
+  }
+  
+  #toast{
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+  }
+}
+
+/* ===================== 动画增强 ===================== */
+
+/* 页面加载时的交错动画 */
+.kpi-card:nth-child(1){animation-delay: 0.05s}
+.kpi-card:nth-child(2){animation-delay: 0.1s}
+.kpi-card:nth-child(3){animation-delay: 0.15s}
+.kpi-card:nth-child(4){animation-delay: 0.2s}
+.kpi-card:nth-child(5){animation-delay: 0.25s}
+
+/* 焦点可见性 */
+*:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+/* 减少动画偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 顶部导航 ===== -->
+<header class="topbar">
+  <div class="topbar-logo">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+      <path d="M12 2L2 7v10l10 5 10-5V7L12 2Z" stroke="#76b900" stroke-width="1.5" fill="none"/>
+      <path d="M2 7l10 5 10-5" stroke="#76b900" stroke-width="1.5"/>
+      <path d="M12 12v10" stroke="#76b900" stroke-width="1.5"/>
+    </svg>
+    NVIDIA NIM Dashboard
+  </div>
+  <div class="topbar-right">
+    <div class="theme-toggle" onclick="toggleTheme()" title="切换深浅模式">
+      <span class="theme-toggle-icon" id="theme-icon">🌙</span>
+      <span id="theme-label">深色</span>
+    </div>
+    <div class="status-dot"><span class="dot"></span><span>实时监控</span></div>
+    <div class="uptime-badge" id="uptime-badge">00:00:00</div>
+  </div>
+</header>
+
+<!-- ===== Tab 导航 ===== -->
+<nav class="tabs">
+  <button class="tab-btn active" onclick="switchTab('keys',this)">
+    🔑 Key 池 <span class="tab-badge" id="tb-keys">-/-</span>
+  </button>
+  <button class="tab-btn" onclick="switchTab('analytics',this)">
+    📈 统计分析 <span class="tab-badge" id="tb-req">0</span>
+  </button>
+  <button class="tab-btn" onclick="switchTab('models',this)">
+    🤖 模型管理 <span class="tab-badge" id="tb-models">-/-</span>
+  </button>
+</nav>
+
+<!-- ============================================================ -->
+<!-- Tab 1: Key 池监控                                           -->
+<!-- ============================================================ -->
+<div id="tab-keys" class="tab-content active">
+  <div class="kpi-grid">
+    <div class="kpi-card kpi-green">
+      <div class="kpi-icon">🔑</div>
+      <div class="kpi-value" id="kpi-total-keys">-</div>
+      <div class="kpi-label">Key 总数</div>
+    </div>
+    <div class="kpi-card kpi-cyan">
+      <div class="kpi-icon">✅</div>
+      <div class="kpi-value" id="kpi-avail-keys">-</div>
+      <div class="kpi-label">当前可用</div>
+    </div>
+    <div class="kpi-card kpi-purple">
+      <div class="kpi-icon">⚡</div>
+      <div class="kpi-value" id="kpi-total-quota">-</div>
+      <div class="kpi-label">剩余配额 RPM</div>
+    </div>
+    <div class="kpi-card kpi-yellow">
+      <div class="kpi-icon">📨</div>
+      <div class="kpi-value" id="kpi-total-req">-</div>
+      <div class="kpi-label">历史总请求</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon">❌</div>
+      <div class="kpi-value" id="kpi-total-err">-</div>
+      <div class="kpi-label">历史总错误</div>
+    </div>
+  </div>
+
+  <div class="section-hd">
+    <div class="section-title">Key 详情</div>
+  </div>
+  <div class="table-box">
+    <table>
+      <thead>
+        <tr>
+          <th>别名</th><th>状态</th><th>配额使用</th>
+          <th>总请求</th><th>Prompt Tokens</th><th>Completion Tokens</th>
+          <th>限速次数</th><th>错误率</th><th>Key 预览</th>
+        </tr>
+      </thead>
+      <tbody id="keys-tbody">
+        <tr><td colspan="9" style="text-align:center;color:var(--text-tertiary);padding:40px">加载中...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Tab 2: 统计分析                                             -->
+<!-- ============================================================ -->
+<div id="tab-analytics" class="tab-content">
+
+  <!-- KPI 总览 -->
+  <div class="kpi-grid">
+    <div class="kpi-card kpi-purple">
+      <div class="kpi-icon">📨</div>
+      <div class="kpi-value" id="an-total-req">0</div>
+      <div class="kpi-label">累计请求</div>
+      <div class="kpi-sub" id="an-1h-req">近1h: -</div>
+    </div>
+    <div class="kpi-card kpi-green">
+      <div class="kpi-icon">🪙</div>
+      <div class="kpi-value" id="an-total-tokens">0</div>
+      <div class="kpi-label">累计 Token</div>
+      <div class="kpi-sub" id="an-1h-tokens">近1h: -</div>
+    </div>
+    <div class="kpi-card kpi-cyan">
+      <div class="kpi-icon">💬</div>
+      <div class="kpi-value" id="an-prompt-tokens">0</div>
+      <div class="kpi-label">Prompt Tokens</div>
+    </div>
+    <div class="kpi-card kpi-blue">
+      <div class="kpi-icon">✍️</div>
+      <div class="kpi-value" id="an-completion-tokens">0</div>
+      <div class="kpi-label">Completion Tokens</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-icon">❌</div>
+      <div class="kpi-value" id="an-total-err">0</div>
+      <div class="kpi-label">累计错误</div>
+    </div>
+  </div>
+
+  <!-- 主图：请求量 + Token消耗（占满宽度） -->
+  <div class="chart-box" style="margin-bottom:18px">
+    <div class="chart-hd">
+      <span class="chart-title">📊 请求量 & Token 消耗趋势</span>
+      <div class="time-filter">
+        <button class="tf-btn active" onclick="setTimeRange(60,this)">1h</button>
+        <button class="tf-btn" onclick="setTimeRange(360,this)">6h</button>
+        <button class="tf-btn" onclick="setTimeRange(1440,this)">24h</button>
+      </div>
+    </div>
+    <div class="chart-body" id="chart-timeline" style="height:300px"></div>
+  </div>
+
+  <!-- 第二行：模型分布 + Key Token占比 + 延迟分布 -->
+  <div class="chart-grid">
+    <div class="chart-box">
+      <div class="chart-hd">
+        <span class="chart-title">🤖 模型调用分布</span>
+        <div class="chart-toolbar">
+          <button class="chart-tab active" onclick="setModelChartMode('requests',this)">调用量</button>
+          <button class="chart-tab" onclick="setModelChartMode('tokens',this)">Token</button>
+        </div>
+      </div>
+      <div class="chart-body" id="chart-model-pie" style="height:260px"></div>
+    </div>
+    <div class="chart-box">
+      <div class="chart-hd">
+        <span class="chart-title">🔑 Key Token 贡献</span>
+      </div>
+      <div class="chart-body" id="chart-key-bar" style="height:260px"></div>
+    </div>
+  </div>
+
+  <!-- 请求记录详情表 -->
+  <div class="section-hd">
+    <div class="section-title">最近请求记录</div>
+    <button class="btn btn-ghost btn-sm" onclick="loadRecords()">🔄 刷新</button>
+  </div>
+  <div class="table-box">
+    <div class="record-row record-header">
+      <span>时间</span><span>模型</span><span>Key</span>
+      <span>Prompt</span><span>Completion</span><span>Total</span>
+      <span>耗时</span><span>状态</span>
+    </div>
+    <div class="record-list" id="record-list">
+      <div class="empty"><div class="empty-icon">📭</div><p>暂无记录</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Tab 3: 模型管理                                             -->
+<!-- ============================================================ -->
+<div id="tab-models" class="tab-content">
+  <div class="model-stats-bar">
+    <div class="mstat"><span class="mstat-v" id="m-total">-</span><span class="mstat-l">全部模型</span></div>
+    <div class="divv"></div>
+    <div class="mstat"><span class="mstat-v" style="color:var(--green)" id="m-enabled">-</span><span class="mstat-l">已启用</span></div>
+    <div class="divv"></div>
+    <div class="mstat"><span class="mstat-v" style="color:var(--red)" id="m-disabled">-</span><span class="mstat-l">已禁用</span></div>
+    <div class="divv"></div>
+    <div class="mstat"><span class="mstat-v" style="font-size:14px;color:var(--text-secondary)" id="m-sync">-</span><span class="mstat-l">同步状态</span></div>
+    <div class="ms-spacer">
+      <button class="btn btn-primary btn-sm" id="fetch-btn" onclick="fetchModels()">🔄 同步最新</button>
+      <button class="btn btn-ghost btn-sm" onclick="enableAll()">全部启用</button>
+      <button class="btn btn-ghost btn-sm" onclick="disableAll()">全部禁用</button>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="model-search" placeholder="搜索模型名称..." oninput="renderModels()">
+    </div>
+    <div class="filter-grp">
+      <button class="fg-btn active" id="fg-all" onclick="setModelFilter('all')">全部</button>
+      <button class="fg-btn" id="fg-enabled" onclick="setModelFilter('enabled')">已启用</button>
+      <button class="fg-btn" id="fg-disabled" onclick="setModelFilter('disabled')">已禁用</button>
+    </div>
+  </div>
+
+  <div id="models-container">
+    <div class="empty"><div class="empty-icon">⏳</div><p>加载中...</p></div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+// ================================================================
+// ECharts 实例
+// ================================================================
+let chartTimeline = null;
+let chartModelPie = null;
+let chartKeyBar = null;
+let currentTimeRange = 60;
+let modelChartMode = 'requests';
+let allModelsData = [];
+let modelFilter = 'all';
+
+// 颜色方案
+const COLORS = ['#7dd93a','#00e5b8','#5b9aff','#b89fff','#ffb84d','#ff6b6b','#ec4899','#06b6d4','#10b981','#f97316'];
+
+// 深浅模式切换
+function initTheme(){
+  const saved=localStorage.getItem('theme')||'dark';
+  document.documentElement.setAttribute('data-theme',saved==='light'?'light':'dark');
+  updateThemeUI(saved);
+}
+function toggleTheme(){
+  const current=document.documentElement.getAttribute('data-theme');
+  const next=current==='light'?'dark':'light';
+  document.documentElement.setAttribute('data-theme',next);
+  localStorage.setItem('theme',next);
+  updateThemeUI(next);
+  updateChartsTheme(next);
+}
+function updateThemeUI(theme){
+  const icon=document.getElementById('theme-icon');
+  const label=document.getElementById('theme-label');
+  if(icon) icon.textContent=theme==='light'?'☀️':'🌙';
+  if(label) label.textContent=theme==='light'?'浅色':'深色';
+}
+function updateChartsTheme(theme){
+  const isLight=theme==='light';
+  const textColor=isLight?'rgba(0,0,0,0.6)':'rgba(255,255,255,0.65)';
+  const bgColor=isLight?'rgba(255,255,255,0.75)':'rgba(255,255,255,0.03)';
+  [chartTimeline,chartModelPie,chartKeyBar].forEach(chart=>{
+    if(chart){
+      chart.setOption({
+        textStyle:{color:textColor},
+        title:{textStyle:{color:textColor}},
+        legend:{textStyle:{color:textColor}},
+        grid:{backgroundColor:bgColor}
+      });
+    }
+  });
+}
+initTheme();
+
+function fmtNum(n){
+  if(n>=1e6) return (n/1e6).toFixed(1)+'M';
+  if(n>=1e3) return (n/1e3).toFixed(1)+'K';
+  return String(n||0);
+}
+function fmtTime(ts){
+  const d=new Date(ts*1000);
+  return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
+}
+function fmtDatetime(ts){
+  const d=new Date(ts*1000);
+  return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`;
+}
+
+// ================================================================
+// Tab 切换
+// ================================================================
+function switchTab(tab, btn){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-'+tab).classList.add('active');
+  if(tab==='analytics'){
+    initCharts();
+    loadAnalytics();
+    loadRecords();
+  }
+  if(tab==='models' && allModelsData.length===0) loadModels();
+}
+
+// ================================================================
+// Tab 1: Key 池
+// ================================================================
+async function loadKeyStats(){
+  try{
+    const [ks, ov] = await Promise.all([
+      fetch('/stats').then(r=>r.json()),
+      fetch('/api/stats/overview').then(r=>r.json()).catch(()=>null)
+    ]);
+
+    const s = ks.summary;
+    document.getElementById('kpi-total-keys').textContent = s.total_keys;
+    document.getElementById('kpi-avail-keys').textContent = s.available_keys;
+    document.getElementById('kpi-total-quota').textContent = s.total_remaining_quota;
+    document.getElementById('kpi-total-req').textContent = fmtNum(s.total_requests);
+    document.getElementById('kpi-total-err').textContent = fmtNum(s.total_errors);
+    document.getElementById('tb-keys').textContent = `${s.available_keys}/${s.total_keys}`;
+
+    // 更新运行时长
+    if(ov) document.getElementById('uptime-badge').textContent = ov.uptime||'--:--:--';
+
+    // 拿Key维度的Token数据
+    let keyTokenMap = {};
+    try{
+      const kt = await fetch('/api/stats/keys').then(r=>r.json());
+      kt.data.forEach(k=>{keyTokenMap[k.key_alias]=k});
+    }catch(e){}
+
+    const tbody = document.getElementById('keys-tbody');
+    tbody.innerHTML = ks.keys.map(k=>{
+      const pct = Math.round(k.current_usage / k.rpm_effective_limit * 100);
+      const barColor = pct>80?'var(--red)':pct>60?'var(--yellow)':'var(--green)';
+      const statusBadge = k.available
+        ?`<span class="badge badge-ok">✅ 可用</span>`
+        :k.is_banned
+          ?`<span class="badge badge-err">🚫 ${k.ban_remaining_seconds}s</span>`
+          :`<span class="badge badge-warn">⚠️ 限额</span>`;
+      const kt = keyTokenMap[k.alias]||{};
+      return `<tr>
+        <td><strong>${k.alias}</strong></td>
+        <td>${statusBadge}</td>
+        <td>
+          <span style="font-size:11px;color:var(--text-secondary)">${k.current_usage}/${k.rpm_effective_limit}</span>
+          <div class="progress"><div class="progress-fill" style="width:${pct}%;background:${barColor}"></div></div>
+        </td>
+        <td>${fmtNum(k.total_requests)}</td>
+        <td class="mono">${fmtNum(kt.prompt_tokens||0)}</td>
+        <td class="mono">${fmtNum(kt.completion_tokens||0)}</td>
+        <td style="color:${k.total_rate_limit_errors>0?'var(--yellow)':'var(--text-tertiary)'}">${k.total_rate_limit_errors}</td>
+        <td>
+          <span style="color:${k.error_rate_percent>5?'var(--red)':k.error_rate_percent>1?'var(--yellow)':'var(--green)'}">
+            ${k.error_rate_percent}%
+          </span>
+        </td>
+        <td class="mono">${k.key_preview}</td>
+      </tr>`;
+    }).join('');
+  }catch(e){console.error('Key stats error:',e)}
+}
+
+// ================================================================
+// Tab 2: 统计分析 - 初始化图表
+// ================================================================
+function initCharts(){
+  if(!chartTimeline){
+    chartTimeline = echarts.init(document.getElementById('chart-timeline'), null, {renderer:'canvas'});
+  }
+  if(!chartModelPie){
+    chartModelPie = echarts.init(document.getElementById('chart-model-pie'), null, {renderer:'canvas'});
+  }
+  if(!chartKeyBar){
+    chartKeyBar = echarts.init(document.getElementById('chart-key-bar'), null, {renderer:'canvas'});
+  }
+  window.addEventListener('resize',()=>{
+    chartTimeline?.resize();
+    chartModelPie?.resize();
+    chartKeyBar?.resize();
+  });
+}
+
+// 加载所有分析数据
+async function loadAnalytics(){
+  try{
+    const [ov, timeline, models, keys] = await Promise.all([
+      fetch('/api/stats/overview').then(r=>r.json()),
+      fetch(`/api/stats/timeline?minutes=${currentTimeRange}`).then(r=>r.json()),
+      fetch('/api/stats/models').then(r=>r.json()),
+      fetch('/api/stats/keys').then(r=>r.json()),
+    ]);
+
+    // 更新KPI
+    const t = ov.total||{};
+    document.getElementById('an-total-req').textContent = fmtNum(t.requests||0);
+    document.getElementById('an-total-tokens').textContent = fmtNum(t.total_tokens||0);
+    document.getElementById('an-prompt-tokens').textContent = fmtNum(t.prompt_tokens||0);
+    document.getElementById('an-completion-tokens').textContent = fmtNum(t.completion_tokens||0);
+    document.getElementById('an-total-err').textContent = fmtNum(t.errors||0);
+    document.getElementById('an-1h-req').textContent = `近1h: ${fmtNum(ov.recent_1h_requests||0)}`;
+    document.getElementById('an-1h-tokens').textContent = `近1h: ${fmtNum(ov.recent_1h_tokens||0)}`;
+    document.getElementById('tb-req').textContent = fmtNum(t.requests||0);
+
+    // 绘制图表
+    renderTimeline(timeline.data||[]);
+    renderModelPie(models.data||[]);
+    renderKeyBar(keys.data||[]);
+  }catch(e){console.error('Analytics error:',e)}
+}
+
+// 趋势图
+function renderTimeline(data){
+  if(!chartTimeline) return;
+  const times = data.map(d=>fmtTime(d.timestamp));
+  const requests = data.map(d=>d.requests);
+  const promptTk = data.map(d=>d.prompt_tokens);
+  const completionTk = data.map(d=>d.completion_tokens);
+  const avgLatency = data.map(d=>d.avg_latency_ms);
+
+  const opt = {
+    backgroundColor:'transparent',
+    tooltip:{
+      trigger:'axis',
+      backgroundColor:'rgba(10,14,26,0.95)',
+      borderColor:'rgba(255,255,255,0.1)',
+      borderWidth:1,
+      textStyle:{color:'#ffffff',fontSize:12},
+      axisPointer:{type:'cross',lineStyle:{color:'rgba(255,255,255,0.15)'}},
+      formatter(params){
+        let html=`<div style="margin-bottom:8px;color:rgba(255,255,255,0.6);font-size:11px">${params[0].name}</div>`;
+        params.forEach(p=>{
+          html+=`<div style="display:flex;align-items:center;gap:10px;margin:4px 0">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};box-shadow:0 0 8px ${p.color}"></span>
+            <span style="color:rgba(255,255,255,0.6);flex:1">${p.seriesName}</span>
+            <span style="font-weight:700;color:#ffffff">${fmtNum(p.value)}</span>
+          </div>`;
+        });
+        return html;
+      }
+    },
+    legend:{
+      top:0,left:'center',
+      textStyle:{color:'rgba(255,255,255,0.5)',fontSize:11},
+      itemWidth:14,itemHeight:7,
+    },
+    grid:{top:48,right:56,bottom:36,left:56,containLabel:false},
+    xAxis:{
+      type:'category',data:times,
+      axisLine:{lineStyle:{color:'rgba(255,255,255,0.08)'}},
+      axisTick:{show:false},
+      axisLabel:{color:'rgba(255,255,255,0.4)',fontSize:10,interval:'auto'},
+      splitLine:{show:false},
+    },
+    yAxis:[
+      {
+        type:'value',name:'请求 / Token',nameTextStyle:{color:'rgba(255,255,255,0.4)',fontSize:10},
+        axisLine:{show:false},axisTick:{show:false},
+        axisLabel:{color:'rgba(255,255,255,0.4)',fontSize:10,formatter:v=>fmtNum(v)},
+        splitLine:{lineStyle:{color:'rgba(255,255,255,0.06)',type:'dashed'}},
+      },
+      {
+        type:'value',name:'延迟 ms',nameTextStyle:{color:'rgba(255,255,255,0.4)',fontSize:10},
+        axisLine:{show:false},axisTick:{show:false},
+        axisLabel:{color:'rgba(255,255,255,0.4)',fontSize:10},
+        splitLine:{show:false},
+      }
+    ],
+    series:[
+      {
+        name:'请求数',type:'bar',
+        data:requests,
+        itemStyle:{color:'rgba(125,217,58,0.75)',borderRadius:[4,4,0,0]},
+        emphasis:{itemStyle:{color:'#7dd93a'}},
+      },
+      {
+        name:'Prompt Token',type:'line',
+        data:promptTk,smooth:true,
+        lineStyle:{color:'#5b9aff',width:2},
+        itemStyle:{color:'#5b9aff'},
+        symbol:'none',
+        areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(91,154,255,0.25)'},{offset:1,color:'rgba(91,154,255,0)'}]}},
+      },
+      {
+        name:'Completion Token',type:'line',
+        data:completionTk,smooth:true,
+        lineStyle:{color:'#00e5b8',width:2},
+        itemStyle:{color:'#00e5b8'},
+        symbol:'none',
+        areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(0,229,184,0.2)'},{offset:1,color:'rgba(0,229,184,0)'}]}},
+      },
+      {
+        name:'平均延迟',type:'line',
+        yAxisIndex:1,
+        data:avgLatency,smooth:true,
+        lineStyle:{color:'#ffb84d',width:2,type:'dashed'},
+        itemStyle:{color:'#ffb84d'},
+        symbol:'none',
+      }
+    ]
+  };
+  chartTimeline.setOption(opt, true);
+}
+
+// 模型饼图
+function renderModelPie(data){
+  if(!chartModelPie||!data.length) return;
+  const key = modelChartMode==='requests'?'requests':'total_tokens';
+  const label = modelChartMode==='requests'?'调用量':'Token数';
+  const pieData = data
+    .filter(d=>d[key]>0)
+    .sort((a,b)=>b[key]-a[key])
+    .map((d,i)=>({
+      name: d.model.includes('/')?d.model.split('/')[1]:d.model,
+      fullName: d.model,
+      value: d[key],
+      itemStyle:{color:COLORS[i%COLORS.length]},
+    }));
+
+  const opt = {
+    backgroundColor:'transparent',
+    tooltip:{
+      trigger:'item',
+      backgroundColor:'rgba(10,14,26,0.95)',
+      borderColor:'rgba(255,255,255,0.1)',borderWidth:1,
+      textStyle:{color:'#ffffff',fontSize:12},
+      formatter(p){
+        return `<div style="font-size:11px;color:rgba(255,255,255,0.6);margin-bottom:4px">${p.data.fullName}</div>
+          <div><span style="color:${p.color};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;box-shadow:0 0 8px ${p.color}">●</span> ${label}: <strong>${fmtNum(p.value)}</strong> (${p.percent}%)</div>`;
+      }
+    },
+    legend:{
+      orient:'vertical',right:0,top:'center',
+      textStyle:{color:'rgba(255,255,255,0.5)',fontSize:11},
+      itemWidth:10,itemHeight:10,
+      formatter(name){return name.length>12?name.slice(0,12)+'…':name},
+    },
+    series:[{
+      type:'pie',radius:['42%','72%'],
+      center:['38%','50%'],
+      data:pieData,
+      label:{show:false},
+      emphasis:{
+        itemStyle:{shadowBlur:16,shadowColor:'rgba(0,0,0,.4)'},
+        label:{show:true,fontSize:13,color:'#ffffff',formatter:'{b}\n{d}%'},
+      },
+      itemStyle:{borderColor:'rgba(10,14,26,0.8)',borderWidth:2},
+    }]
+  };
+  chartModelPie.setOption(opt, true);
+}
+
+// Key Token 柱状图
+function renderKeyBar(data){
+  if(!chartKeyBar||!data.length) return;
+  const sorted = [...data].sort((a,b)=>b.total_tokens-a.total_tokens);
+  const names = sorted.map(d=>d.key_alias);
+  const prompt = sorted.map(d=>d.prompt_tokens);
+  const completion = sorted.map(d=>d.completion_tokens);
+
+  const opt = {
+    backgroundColor:'transparent',
+    tooltip:{
+      trigger:'axis',axisPointer:{type:'shadow'},
+      backgroundColor:'rgba(10,14,26,0.95)',
+      borderColor:'rgba(255,255,255,0.1)',borderWidth:1,
+      textStyle:{color:'#ffffff',fontSize:12},
+    },
+    legend:{
+      bottom:0,textStyle:{color:'rgba(255,255,255,0.5)',fontSize:11},
+      itemWidth:12,itemHeight:7,
+    },
+    grid:{top:10,right:16,bottom:44,left:16,containLabel:true},
+    xAxis:{
+      type:'category',data:names,
+      axisLine:{lineStyle:{color:'rgba(255,255,255,0.08)'}},
+      axisTick:{show:false},
+      axisLabel:{color:'rgba(255,255,255,0.4)',fontSize:10},
+    },
+    yAxis:{
+      type:'value',
+      axisLine:{show:false},axisTick:{show:false},
+      axisLabel:{color:'rgba(255,255,255,0.4)',fontSize:10,formatter:v=>fmtNum(v)},
+      splitLine:{lineStyle:{color:'rgba(255,255,255,0.06)',type:'dashed'}},
+    },
+    series:[
+      {
+        name:'Prompt',type:'bar',stack:'total',
+        data:prompt,barMaxWidth:44,
+        itemStyle:{color:'rgba(91,154,255,0.85)',borderRadius:[0,0,5,5]},
+      },
+      {
+        name:'Completion',type:'bar',stack:'total',
+        data:completion,barMaxWidth:44,
+        itemStyle:{color:'rgba(125,217,58,0.9)',borderRadius:[5,5,0,0]},
+      }
+    ]
+  };
+  chartKeyBar.setOption(opt, true);
+}
+
+// 切换时间范围
+function setTimeRange(min, btn){
+  currentTimeRange = min;
+  document.querySelectorAll('.tf-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  fetch(`/api/stats/timeline?minutes=${min}`)
+    .then(r=>r.json())
+    .then(d=>renderTimeline(d.data||[]));
+}
+
+// 切换模型图模式
+function setModelChartMode(mode, btn){
+  modelChartMode = mode;
+  document.querySelectorAll('.chart-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  fetch('/api/stats/models')
+    .then(r=>r.json())
+    .then(d=>renderModelPie(d.data||[]));
+}
+
+// 加载请求记录
+async function loadRecords(){
+  try{
+    const res = await fetch('/api/stats/records?limit=80');
+    const data = await res.json();
+    const list = document.getElementById('record-list');
+    if(!data.data||!data.data.length){
+      list.innerHTML='<div class="empty"><div class="empty-icon">📭</div><p>暂无请求记录</p></div>';
+      return;
+    }
+    list.innerHTML = data.data.map(r=>{
+      const shortModel = r.model.includes('/')?r.model.split('/').pop():r.model;
+      const statusBadge = r.success
+        ?`<span class="badge badge-ok" style="font-size:10px">✓</span>`
+        :`<span class="badge badge-err" style="font-size:10px">✗</span>`;
+      const streamBadge = r.stream?`<span class="badge badge-purple" style="font-size:10px;margin-left:4px">流</span>`:'';
+      const latencyColor = r.latency_ms>5000?'var(--red)':r.latency_ms>2000?'var(--yellow)':'var(--text-secondary)';
+      return `<div class="record-row">
+        <span class="mono" style="color:var(--text-tertiary)">${fmtDatetime(r.time)}</span>
+        <span title="${r.model}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${shortModel}</span>
+        <span class="mono" style="color:var(--text-tertiary)">${r.key_alias}</span>
+        <span class="mono">${fmtNum(r.prompt_tokens)}</span>
+        <span class="mono">${fmtNum(r.completion_tokens)}</span>
+        <span class="mono" style="color:var(--cyan)">${fmtNum(r.total_tokens)}</span>
+        <span style="color:${latencyColor};font-size:11px">${r.latency_ms}ms</span>
+        <span>${statusBadge}${streamBadge}</span>
+      </div>`;
+    }).join('');
+  }catch(e){console.error('Records error:',e)}
+}
+
+// ================================================================
+// Tab 3: 模型管理
+// ================================================================
+async function loadModels(){
+  try{
+    const res = await fetch('/api/models');
+    const data = await res.json();
+    allModelsData = data.models||[];
+    updateModelMeta(data.stats);
+    renderModels();
+  }catch(e){
+    document.getElementById('models-container').innerHTML=
+      '<div class="empty"><div class="empty-icon">❌</div><p>加载失败，请刷新重试</p></div>';
+  }
+}
+
+function updateModelMeta(stats){
+  document.getElementById('m-total').textContent = stats.total_models||0;
+  document.getElementById('m-enabled').textContent = stats.enabled_models||0;
+  document.getElementById('m-disabled').textContent = stats.disabled_models||0;
+  document.getElementById('m-sync').textContent = stats.last_fetch_status||'未知';
+  document.getElementById('tb-models').textContent = `${stats.enabled_models||0}/${stats.total_models||0}`;
+}
+
+function setModelFilter(f){
+  modelFilter=f;
+  ['all','enabled','disabled'].forEach(x=>{
+    document.getElementById('fg-'+x)?.classList.toggle('active',x===f);
+  });
+  renderModels();
+}
+
+function renderModels(){
+  const kw = document.getElementById('model-search').value.toLowerCase();
+  const container = document.getElementById('models-container');
+
+  let list = allModelsData.filter(m=>{
+    const matchKw = !kw||m.id.toLowerCase().includes(kw)||m.owned_by.toLowerCase().includes(kw);
+    const matchF = modelFilter==='all'||(modelFilter==='enabled'&&m.enabled)||(modelFilter==='disabled'&&!m.enabled);
+    return matchKw&&matchF;
+  });
+
+  if(!list.length){
+    container.innerHTML='<div class="empty"><div class="empty-icon">🔍</div><p>没有匹配的模型</p></div>';
+    return;
+  }
+
+  const groups={};
+  const ORDER=['meta','mistralai','google','microsoft','nvidia','deepseek-ai','qwen'];
+  list.forEach(m=>{
+    const o=m.owned_by||'other';
+    if(!groups[o]) groups[o]=[];
+    groups[o].push(m);
+  });
+  const owners=[...ORDER.filter(o=>groups[o]),...Object.keys(groups).filter(o=>!ORDER.includes(o))];
+  const ICONS={meta:'meta',mistralai:'mistral',google:'google',microsoft:'microsoft',nvidia:'nvidia','deepseek-ai':'deepseek',qwen:'qwen'};
+  const ICON_CDN='https://unpkg.com/@lobehub/icons-static-svg@latest/icons/';
+  const getIcon=(id)=>`<img src="${ICON_CDN}${id}-color.svg" class="provider-icon" onerror="if(this.src.includes('-color.svg')){this.src='${ICON_CDN}${id}.svg'}else{this.outerHTML='<span style=\\'font-size:20px\\'>🤖</span>'}" alt="${id}">`;
+
+  container.innerHTML = owners.map(owner=>{
+    const ms=groups[owner];
+    const ec=ms.filter(m=>m.enabled).length;
+    const iconHtml=ICONS[owner]?getIcon(ICONS[owner]):'<span style="font-size:20px">🤖</span>';
+    return `<div class="model-group">
+      <div class="model-group-hd" onclick="toggleGroup(this)">
+        ${iconHtml}
+        <span class="model-group-title">${owner}</span>
+        <span class="group-count">${ec}/${ms.length}</span>
+        <span class="group-arrow">▼</span>
+      </div>
+      <div class="model-grid group-body">
+        ${ms.map(m=>modelCard(m)).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function modelCard(m){
+  const short=m.id.includes('/')?m.id.split('/')[1]:m.id;
+  return `<div class="model-card ${m.enabled?'':'disabled'}" id="mcard-${CSS.escape(m.id)}">
+    <div class="model-info" style="min-width:0;flex:1">
+      <div class="model-name" title="${m.id}">${short}</div>
+      <div class="model-id">${m.id}</div>
+    </div>
+    <label class="toggle" title="${m.enabled?'点击禁用':'点击启用'}">
+      <input type="checkbox" ${m.enabled?'checked':''} onchange="toggleModel('${m.id}',this)">
+      <span class="toggle-slider"></span>
+    </label>
+  </div>`;
+}
+
+async function toggleModel(id, cb){
+  const was = !cb.checked;
+  try{
+    const res = await fetch(`/api/models/${encodeURIComponent(id)}/toggle`,{method:'POST'});
+    const data = await res.json();
+    if(res.ok&&data.success){
+      const m=allModelsData.find(x=>x.id===id);
+      if(m) m.enabled=data.enabled;
+      const card=document.getElementById(`mcard-${CSS.escape(id)}`);
+      if(card) card.className=`model-card ${data.enabled?'':'disabled'}`;
+      fetch('/api/models').then(r=>r.json()).then(d=>updateModelMeta(d.stats));
+      showToast(data.enabled?`已启用: ${id.split('/').pop()}`:`已禁用: ${id.split('/').pop()}`,data.enabled?'success':'info');
+    }else{cb.checked=was;showToast(data.detail||'操作失败','error')}
+  }catch(e){cb.checked=was;showToast('网络错误','error')}
+}
+
+function toggleGroup(hd){
+  const group=hd.parentElement;
+  const body=group.querySelector('.group-body');
+  const collapsed=group.classList.contains('group-collapsed');
+  if(collapsed){
+    group.classList.remove('group-collapsed');
+    body.style.display='grid';
+  }else{
+    group.classList.add('group-collapsed');
+    body.style.display='none';
+  }
+}
+
+async function enableAll(){
+  const res=await fetch('/api/models/enable-all',{method:'POST'});
+  if(res.ok){showToast('所有模型已启用','success');await loadModels();}
+}
+
+async function disableAll(){
+  const res=await fetch('/api/models/disable-all',{method:'POST'});
+  if(res.ok){showToast('已禁用所有模型（保留默认模型）','success');await loadModels();}
+}
+
+async function fetchModels(){
+  const btn=document.getElementById('fetch-btn');
+  btn.disabled=true;btn.innerHTML='<span class="spin">🔄</span> 同步中...';
+  try{
+    const res=await fetch('/api/models/fetch',{method:'POST'});
+    const data=await res.json();
+    showToast(data.message,data.success?'success':'info');
+    await loadModels();
+  }catch(e){showToast('同步失败','error')}
+  finally{btn.disabled=false;btn.innerHTML='🔄 同步最新'}
+}
+
+// ================================================================
+// Toast
+// ================================================================
+let toastTimer=null;
+function showToast(msg,type='info'){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.className=`show ${type}`;
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{t.className=''},3500);
+}
+
+// ================================================================
+// 初始化 & 轮询
+// ================================================================
+loadKeyStats();
+setInterval(loadKeyStats, 5000);
+
+// analytics Tab 进入时才加载图表（懒加载）
+// 但overview数据和tab badge需要一直刷新
+setInterval(async ()=>{
+  try{
+    const ov=await fetch('/api/stats/overview').then(r=>r.json());
+    document.getElementById('uptime-badge').textContent=ov.uptime||'--:--:--';
+    const t=ov.total||{};
+    document.getElementById('tb-req').textContent=fmtNum(t.requests||0);
+    // 如果Analytics tab当前处于活跃状态，顺便刷新图表
+    if(document.getElementById('tab-analytics').classList.contains('active')){
+      loadAnalytics();
+    }
+  }catch(e){}
+}, 10000);
+</script>
+</body>
+</html>
