@@ -108,8 +108,8 @@ nvidia-nim-lb/
 
 ```bash
 # 克隆项目
-git clone <your-repo-url>
-cd nvidia-nim-lb
+git clone [<your-repo-url>](https://github.com/Xiaoma716/NVIDIA-NIM.git)
+cd NVIDIA-NIM
 
 # 创建虚拟环境（推荐）
 python -m venv venv
