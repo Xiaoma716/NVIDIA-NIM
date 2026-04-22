@@ -70,13 +70,39 @@ def init_app_state(
 router = APIRouter()
 
 
+def normalize_content(content: Union[str, List, Dict]) -> Union[str, List]:
+    if isinstance(content, str):
+        return content
+    elif isinstance(content, list):
+        return content
+    elif isinstance(content, dict):
+        if "type" in content:
+            return [content]
+        else:
+            text = content.get("text", str(content))
+            parts = []
+            if text:
+                parts.append({"type": "text", "text": text})
+            for key in ("image_url", "image", "video_url", "video", "audio_url", "audio"):
+                if key in content and content[key]:
+                    media_type = key.replace("_url", "")
+                    parts.append({
+                        "type": f"{media_type}_url" if "_url" in key else media_type,
+                        f"{media_type}_url" if "_url" in key else media_type: content[key] if isinstance(content[key], dict) else {"url": content[key]}
+                    })
+            return parts if parts else str(content)
+    else:
+        return str(content)
+
+
 # ------------------------------------------------------------------
 # Pydantic 模型
 # ------------------------------------------------------------------
 
 class Message(BaseModel):
     role: str
-    content: Union[str, List[Dict]]
+    content: Union[str, List[Dict], Dict]
+    model_config = {"extra": "allow"}
 
 
 class ChatCompletionRequest(BaseModel):
@@ -258,10 +284,19 @@ async def chat_completions(request: ChatCompletionRequest, state: AppState = Dep
             detail=f"模型 '{model}' 未启用或不存在，请在 Dashboard 中启用后使用"
         )
 
-    messages = [{"role": m.role, "content": m.content} for m in request.messages]
+    messages = []
+    for m in request.messages:
+        normalized = normalize_content(m.content)
+        messages.append({"role": m.role, "content": normalized})
+        if isinstance(m.content, dict) and "type" not in m.content:
+            logger.debug(f"检测到非标准content格式，已自动转换: {m.content} -> {normalized}")
+        elif isinstance(normalized, list) and len(normalized) > 1:
+            logger.debug(f"多模态消息: role={m.role}, content_parts={len(normalized)}")
+
     extra_params = dict(request.model_extra or {})
 
     logger.info(f"收到请求 | model={model} | stream={request.stream} | messages={len(messages)}条")
+    logger.debug(f"完整请求体: {request.model_dump()}")
 
     try:
         if request.stream:

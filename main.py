@@ -18,7 +18,7 @@ from core.write_buffer import WriteBuffer
 from api.router import router, init_app_state
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
@@ -173,6 +173,26 @@ def create_app() -> FastAPI:
         docs_url="/docs",
         lifespan=lifespan,
     )
+
+    @app.middleware("http")
+    async def log_requests(request: Request, call_next):
+        if request.url.path.startswith("/v1/"):
+            body = await request.body()
+            try:
+                import json
+                body_str = body.decode("utf-8", errors="ignore")
+                if len(body_str) > 500:
+                    body_preview = body_str[:500] + f"... (total {len(body_str)} chars)"
+                else:
+                    body_preview = body_str
+                logger.info(f"[INBOUND] {request.method} {request.url.path} | User-Agent: {request.headers.get('user-agent', 'unknown')[:80]} | Body: {body_preview}")
+            except Exception:
+                logger.info(f"[INBOUND] {request.method} {request.url.path} | Body: (binary, {len(body)} bytes)")
+            from starlette.requests import Request as StarletteRequest
+            new_request = StarletteRequest(request.scope, receive=lambda: __import__("asyncio").sleep(0) or __import__("asyncio").create_future().__class__(lambda f: f.set_result(body))())
+        response = await call_next(request)
+        return response
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],

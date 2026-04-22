@@ -21,6 +21,7 @@ class NvidiaProxy:
         "frequency_penalty", "presence_penalty", "stop", "seed",
         "n", "user", "logit_bias", "response_format",
         "tools", "tool_choice", "logprobs", "top_logprobs",
+        "modalities", "image_detail", "audio_config", "video_config",
     })
 
     def __init__(
