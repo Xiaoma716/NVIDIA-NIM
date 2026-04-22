@@ -64,11 +64,9 @@
 ## 📁 项目结构
 
 ```
-nvidia-nim-lb/
+NVIDIA-NIM/
 ├── main.py                 # 启动入口
-├── config.yaml             # 配置文件（含 API Key，⚠️ 不入库）
 ├── requirements.txt        # Python 依赖
-├── .gitignore              # Git 忽略规则
 │
 ├── core/                   # 核心逻辑层
 │   ├── config.py           # 集中化配置管理（单例模式）
@@ -91,8 +89,7 @@ nvidia-nim-lb/
 │   └── test_core.py
 │
 ├── data/                   # 运行时数据（SQLite 数据库）
-├── logs/                   # 运行日志
-└── docs/                   # 设计文档 & 版本更新日志
+└── logs/                   # 运行日志
 ```
 
 ---
