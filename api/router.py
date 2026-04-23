@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from loguru import logger
 
 from api.dashboard import DASHBOARD_HTML
-from core.proxy import NvidiaProxy
+from core.proxy import NvidiaProxy, AdmissionRejectedException
 from core.key_pool import KeyPool
 from core.model_manager import ModelManager
 from core.stats_manager import StatsManager
@@ -331,6 +331,13 @@ async def chat_completions(request: ChatCompletionRequest, state: AppState = Dep
             )
             return JSONResponse(content=response.model_dump())
 
+    except AdmissionRejectedException as e:
+        logger.warning(f"准入控制拒绝: {e.info['error']}")
+        raise HTTPException(
+            status_code=429,
+            detail=e.info,
+            headers={"Retry-After": "5"},
+        )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:

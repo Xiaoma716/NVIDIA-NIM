@@ -44,6 +44,12 @@ class APIKey:
     _is_disabled: bool = field(default=False, compare=False)
     # 禁用原因
     _disable_reason: str = field(default="", compare=False)
+    # 是否已被 try_acquire 预扣（避免与 record_request 重复计数）
+    _pre_acquired: bool = field(default=False, compare=False)
+    # 连续失败计数（被动检测：达到阈值时触发紧急健康检查）
+    _consecutive_failures: int = field(default=0, compare=False)
+    # 是否需要优先健康检查（连续失败达到阈值时标记）
+    _needs_urgent_check: bool = field(default=False, compare=False)
 
     def _clean_old_timestamps(self):
         """
@@ -113,10 +119,28 @@ class APIKey:
             return 0.0
 
     def record_request(self):
-        """记录一次请求（请求发出前调用）"""
+        """记录一次请求（请求发出前调用），同时重置连续失败计数"""
+        with self._lock:
+            self._consecutive_failures = 0
+            if self._pre_acquired:
+                self._pre_acquired = False
+                return
+            self._timestamps.append(time.time())
+            self._total_requests += 1
+
+    def pre_acquire(self):
+        """预扣配额：在 try_acquire 中原子性地提前占用一个配额位"""
         with self._lock:
             self._timestamps.append(time.time())
             self._total_requests += 1
+            self._pre_acquired = True
+
+    def release_pre_acquire(self):
+        """回滚预扣：请求未实际发出时调用，移除预扣的时间戳"""
+        with self._lock:
+            if self._timestamps:
+                self._timestamps.pop()
+                self._pre_acquired = False
 
     def record_rate_limit_error(self):
         """
@@ -126,16 +150,30 @@ class APIKey:
         with self._lock:
             self._total_errors += 1
             self._total_rate_limit_errors += 1
+            self._consecutive_failures += 1
             self._is_banned = True
             self._ban_until = time.time() + 60
+            if self._consecutive_failures >= 3 and not self._needs_urgent_check:
+                self._needs_urgent_check = True
+                logger.warning(
+                    f"[{self.alias}] 连续失败 {self._consecutive_failures} 次，"
+                    "标记为需要优先健康检查"
+                )
             logger.warning(
                 f"[{self.alias}] 触发 Rate Limit！封禁60秒 "
-                f"(累计限速次数: {self._total_rate_limit_errors})"
+                f"(累计限速次数: {self._total_rate_limit_errors}, 连续失败: {self._consecutive_failures})"
             )
 
     def record_general_error(self):
         with self._lock:
             self._total_errors += 1
+            self._consecutive_failures += 1
+            if self._consecutive_failures >= 3 and not self._needs_urgent_check:
+                self._needs_urgent_check = True
+                logger.warning(
+                    f"[{self.alias}] 连续失败 {self._consecutive_failures} 次，"
+                    "标记为需要优先健康检查"
+                )
 
     def set_historical_totals(self, requests: int, errors: int, rate_limit_errors: int):
         with self._lock:
@@ -180,6 +218,8 @@ class APIKey:
                 "total_errors": self._total_errors,
                 "total_rate_limit_errors": self._total_rate_limit_errors,
                 "error_rate_percent": error_rate,
+                "consecutive_failures": self._consecutive_failures,
+                "needs_urgent_check": self._needs_urgent_check,
                 "key_preview": f"{self.key[:10]}...{self.key[-4:]}",
             }
 
@@ -200,11 +240,32 @@ class KeyPool:
                 rpm_buffer=rpm_buffer,
             )
             self.keys.append(api_key)
+        self._acquire_lock = threading.Lock()
         logger.info(f"Key池初始化完成，共加载 {len(self.keys)} 个Key")
 
     def get_available_keys(self) -> List[APIKey]:
         """返回当前所有可用的Key"""
         return [k for k in self.keys if k.is_available()]
+
+    def get_total_remaining(self) -> int:
+        """获取所有可用Key的总剩余配额（用于前置准入判断）"""
+        return sum(k.get_remaining_quota() for k in self.keys if k.is_available())
+
+    def try_acquire(self) -> Optional[APIKey]:
+        """
+        原子性尝试获取一个可用Key（带预扣）
+        - 在全局锁内完成：检查总量 → 按策略选择Key → 预扣配额
+        - 配额不足时立即返回 None（不阻塞、不等待）
+        - 返回的 Key 已被 pre_acquire，调用方后续 record_request() 不会重复计数
+        - 若获取到 Key 但请求未实际发出，需调用 key.release_pre_acquire() 回滚
+        """
+        with self._acquire_lock:
+            available = [k for k in self.keys if k.is_available()]
+            if not available:
+                return None
+            selected = max(available, key=lambda k: k.get_remaining_quota())
+            selected.pre_acquire()
+            return selected
 
     def get_all_stats(self) -> List[Dict[str, Any]]:
         """返回所有Key的统计信息"""
@@ -263,8 +324,8 @@ class KeyHealthChecker:
     发现无效 Key（401/403）时自动标记为永久禁用
     """
 
-    CHECK_INTERVAL = 3600       # 检查间隔：1小时
-    CHECK_TIMEOUT = 10.0       # 单次检查超时：10秒
+    CHECK_INTERVAL = 300         # 检查间隔：5分钟（原1小时，缩短以更快发现失效Key）
+    CHECK_TIMEOUT = 10.0        # 单次检查超时：10秒
 
     def __init__(self, key_pool: KeyPool, base_url: str):
         self.key_pool = key_pool
@@ -303,13 +364,18 @@ class KeyHealthChecker:
             logger.error(f"健康检查循环异常: {e}")
 
     async def check_all_keys(self):
-        """对所有 Key 执行一次健康检查"""
+        """对所有 Key 执行一次健康检查，优先检查被标记为需要紧急检查的 Key"""
         url = f"{self.base_url}/models"
         results = {"ok": 0, "disabled": 0, "error": 0}
 
-        for api_key in self.key_pool.keys:
-            if api_key._is_disabled:
+        urgent_keys = [k for k in self.key_pool.keys if k._needs_urgent_check and not k._is_disabled]
+        normal_keys = [k for k in self.key_pool.keys if not k._needs_urgent_check and not k._is_disabled]
+        checked_aliases = set()
+
+        for api_key in urgent_keys + normal_keys:
+            if api_key.alias in checked_aliases:
                 continue
+            checked_aliases.add(api_key.alias)
 
             try:
                 async with httpx.AsyncClient(timeout=self.CHECK_TIMEOUT) as client:
@@ -330,6 +396,10 @@ class KeyHealthChecker:
                     logger.debug(f"[{api_key.alias}] 健康检查触发限速(429)，暂不处理")
                     results["ok"] += 1
                 elif response.status_code == 200:
+                    with api_key._lock:
+                        api_key._needs_urgent_check = False
+                    if api_key in urgent_keys:
+                        logger.info(f"[{api_key.alias}] 紧急健康检查通过 ✅，已解除标记")
                     results["ok"] += 1
                 else:
                     logger.warning(f"[{api_key.alias}] 健康检查返回 HTTP {response.status_code}")

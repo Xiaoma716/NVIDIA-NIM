@@ -60,6 +60,11 @@ def validate_config(config: dict):
                 errors.append(f"balancer.{float_field} 必须为正数，当前值: {bl.get(float_field)}")
         if "max_retries" in bl and (not isinstance(bl["max_retries"], int) or bl["max_retries"] < 0):
             errors.append(f"balancer.max_retries 必须为非负整数，当前值: {bl.get('max_retries')}")
+        valid_admission_modes = ("reject_fast", "queue_wait")
+        if "admission_mode" in bl and bl["admission_mode"] not in valid_admission_modes:
+            errors.append(f"balancer.admission_mode 无效: '{bl['admission_mode']}'，可选: {valid_admission_modes}")
+        if "queue_wait_timeout" in bl and (not isinstance(bl["queue_wait_timeout"], (int, float)) or bl["queue_wait_timeout"] <= 0):
+            errors.append(f"balancer.queue_wait_timeout 必须为正数，当前值: {bl.get('queue_wait_timeout')}")
 
     if "server" in config:
         sv = config["server"]
@@ -110,6 +115,8 @@ def create_app() -> FastAPI:
         key_pool=key_pool,
         strategy=cfg.balancer.get("strategy", "most_remaining"),
         wait_timeout=cfg.balancer.get("wait_timeout", 65.0),
+        admission_mode=cfg.balancer.get("admission_mode", "reject_fast"),
+        queue_wait_timeout=cfg.balancer.get("queue_wait_timeout", 30.0),
     )
     stats_manager = StatsManager(write_buffer=write_buffer)
 

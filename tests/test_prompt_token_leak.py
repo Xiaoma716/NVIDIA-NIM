@@ -513,8 +513,8 @@ class TestRegressionNormalPaths:
 class TestRetryAccumulatedEstimation:
 
     @pytest.mark.asyncio
-    async def test_multiple_retries_all_fail_accumulates_estimates(self):
-        """✅ 修复验证 #8：多次重试失败时每次都累加估算值"""
+    async def test_multiple_retries_all_fail_reports_once(self):
+        """✅ 修复验证 #8：多次重试失败时仅报告一次（Token 去重）"""
         from openai import APIStatusError
         proxy, stats = _make_proxy_with_stats()
 
@@ -542,13 +542,16 @@ class TestRetryAccumulatedEstimation:
                 pass
 
         overview = stats.get_overview()
-        assert overview["total"]["requests"] == call_count
-        assert overview["total"]["errors"] == call_count
-        assert overview["total"]["prompt_tokens"] == single_est * call_count, \
-            f"✅ 修复成功：{call_count}次重试 × 单次估算{single_est} = " \
-            f"{single_est * call_count}，实际={overview['total']['prompt_tokens']}"
-        print(f"\n  [OK] 累积统计正确：{call_count} 次尝试 x "
-              f"{single_est} tokens/次 = {overview['total']['prompt_tokens']}")
+        assert overview["total"]["requests"] == 1, \
+            f"去重后应仅报告 1 次请求，实际={overview['total']['requests']}"
+        assert overview["total"]["errors"] == 1, \
+            f"去重后应仅报告 1 次错误，实际={overview['total']['errors']}"
+        assert overview["total"]["prompt_tokens"] == single_est, \
+            f"✅ Token 去重：{call_count}次尝试仅报告 1 次 × 单次估算{single_est} = " \
+            f"{single_est}，实际={overview['total']['prompt_tokens']}"
+        print(f"\n  [OK] 去重统计正确：{call_count} 次尝试 → "
+              f"仅报告 {overview['total']['requests']} 次 × "
+              f"{single_est} tokens = {overview['total']['prompt_tokens']}")
 
 
 # ====================================================================

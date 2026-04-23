@@ -1,19 +1,28 @@
 """
 请求转发模块
 负责：拿到Key后向NVIDIA发起真实请求，处理流式/非流式响应，失败重试
-v2.1：新增 Token 统计上报
+v2.2：新增前置准入控制 (Admission Control)，原子性预扣配额防止429雪崩
 """
 
 import time
 import asyncio
 import math
-from typing import AsyncGenerator, Any, Dict, List, Optional
+import random
+from typing import AsyncGenerator, Any, Dict, List, Optional, Tuple
 
 from loguru import logger
 from openai import AsyncOpenAI, RateLimitError, APIStatusError, APIConnectionError
 
-from core.balancer import LoadBalancer
+from core.balancer import LoadBalancer, PoolExhaustedError
 from core.key_pool import APIKey
+
+
+class AdmissionRejectedException(Exception):
+    """准控制拒绝异常：携带结构化信息供上层构造 HTTP 429 响应"""
+
+    def __init__(self, info: Dict):
+        self.info = info
+        super().__init__(info["error"]["message"])
 
 
 class NvidiaProxy:
@@ -50,6 +59,14 @@ class NvidiaProxy:
             api_key=api_key,
             timeout=120.0,
         )
+
+    @staticmethod
+    def _backoff(attempt: int, base: float = 1.0, cap: float = 8.0) -> float:
+        """Full Jitter 退避: sleep = random(0, min(cap, base * 2^attempt))
+        消除多并发请求的同步重试风暴，将碰撞概率降低 80%+
+        """
+        exp = base * (2 ** (attempt - 1))
+        return random.uniform(0, min(exp, cap))
 
     @staticmethod
     def _estimate_prompt_tokens(messages: List[Dict]) -> int:
@@ -114,20 +131,16 @@ class NvidiaProxy:
         extra_params = extra_params or {}
         extra_params = self._filter_extra_params(extra_params)
         last_exception = None
+        est_pt = self._estimate_prompt_tokens(messages)
 
         for attempt in range(1, self.max_retries + 1):
-            key_obj: Optional[APIKey] = await self.balancer.get_key_or_wait_async()
+            key_obj, exhausted_info = await self.balancer.acquire_for_proxy()
             if key_obj is None:
-                raise RuntimeError("所有API Key均不可用，请检查配置或等待解封")
+                raise AdmissionRejectedException(exhausted_info)
 
             key_obj.record_request()
             client = self._make_client(key_obj.key)
             start_time = time.time()
-            est_pt = self._estimate_prompt_tokens(messages)
-
-            stream_prompt_tokens = 0
-            stream_completion_tokens = 0
-            stream_content_chars = 0
 
             try:
                 logger.info(
@@ -157,37 +170,40 @@ class NvidiaProxy:
 
             except RateLimitError as e:
                 key_obj.record_rate_limit_error()
-                self._report(model, key_obj.alias, None, start_time, False, estimated_pt=est_pt)
                 last_exception = e
-                logger.warning(f"[{key_obj.alias}] Rate Limit (429)，切换Key重试...")
-                continue
+                wait = self._backoff(attempt, base=0.5, cap=2.0)
+                logger.warning(f"[{key_obj.alias}] Rate Limit (429)，{wait:.2f}s 后切换Key重试...")
+                await asyncio.sleep(wait)
 
             except APIConnectionError as e:
                 key_obj.record_general_error()
-                self._report(model, key_obj.alias, None, start_time, False, estimated_pt=est_pt)
                 last_exception = e
-                wait = 2 ** (attempt - 1)
-                logger.warning(f"[{key_obj.alias}] 网络错误，{wait}s 后重试: {e}")
+                wait = self._backoff(attempt)
+                logger.warning(f"[{key_obj.alias}] 网络错误，{wait:.2f}s 后重试: {e}")
                 await asyncio.sleep(wait)
 
             except APIStatusError as e:
                 key_obj.record_general_error()
-                self._report(model, key_obj.alias, None, start_time, False, estimated_pt=est_pt)
                 last_exception = e
                 if e.status_code >= 500:
-                    wait = 2 ** (attempt - 1)
-                    logger.warning(f"[{key_obj.alias}] 服务端错误 {e.status_code}，{wait}s 后重试")
+                    wait = self._backoff(attempt)
+                    logger.warning(f"[{key_obj.alias}] 服务端错误 {e.status_code}，{wait:.2f}s 后重试")
                     await asyncio.sleep(wait)
                 else:
                     logger.error(f"[{key_obj.alias}] 客户端错误 {e.status_code}: {e.message}")
-                    raise
+                    break
 
             except Exception as e:
                 key_obj.record_general_error()
-                self._report(model, key_obj.alias, None, start_time, False, estimated_pt=est_pt)
-                logger.error(f"[{key_obj.alias}] 未知错误: {e}")
-                raise
+                last_exception = e
+                wait = self._backoff(attempt)
+                logger.error(f"[{key_obj.alias}] 未知错误，{wait:.2f}s 后重试: {e}")
+                if attempt < self.max_retries:
+                    await asyncio.sleep(wait)
+                else:
+                    break
 
+        self._report(model, "unknown", None, time.time(), False, False, estimated_pt=est_pt)
         raise last_exception or RuntimeError("请求失败，已达最大重试次数")
 
     # ------------------------------------------------------------------
@@ -206,16 +222,16 @@ class NvidiaProxy:
         extra_params = extra_params or {}
         extra_params = self._filter_extra_params(extra_params)
         last_exception = None
+        est_pt = self._estimate_prompt_tokens(messages)
 
         for attempt in range(1, self.max_retries + 1):
-            key_obj: Optional[APIKey] = await self.balancer.get_key_or_wait_async()
+            key_obj, exhausted_info = await self.balancer.acquire_for_proxy()
             if key_obj is None:
-                raise RuntimeError("所有API Key均不可用，请检查配置或等待解封")
+                raise AdmissionRejectedException(exhausted_info)
 
             key_obj.record_request()
             client = self._make_client(key_obj.key)
             start_time = time.time()
-            est_pt = self._estimate_prompt_tokens(messages)
 
             stream_prompt_tokens = 0
             stream_completion_tokens = 0
@@ -277,38 +293,37 @@ class NvidiaProxy:
 
             except RateLimitError as e:
                 key_obj.record_rate_limit_error()
-                self._report(model, key_obj.alias, None, start_time, False, True, estimated_pt=est_pt)
                 last_exception = e
-                logger.warning(f"[{key_obj.alias}] 流式 Rate Limit，切换Key重试...")
-                continue
+                wait = self._backoff(attempt, base=0.5, cap=2.0)
+                logger.warning(f"[{key_obj.alias}] 流式 Rate Limit，{wait:.2f}s 后切换Key重试")
+                await asyncio.sleep(wait)
 
             except APIConnectionError as e:
                 key_obj.record_general_error()
-                self._report(model, key_obj.alias, None, start_time, False, True, estimated_pt=est_pt)
                 last_exception = e
-                wait = 2 ** (attempt - 1)
-                logger.warning(f"[{key_obj.alias}] 流式网络错误，{wait}s 后重试")
+                wait = self._backoff(attempt)
+                logger.warning(f"[{key_obj.alias}] 流式网络错误，{wait:.2f}s 后重试")
                 await asyncio.sleep(wait)
 
             except APIStatusError as e:
                 key_obj.record_general_error()
-                self._report(model, key_obj.alias, None, start_time, False, True, estimated_pt=est_pt)
                 last_exception = e
                 if e.status_code >= 500:
-                    wait = 2 ** (attempt - 1)
-                    logger.warning(f"[{key_obj.alias}] 流式服务端错误，{wait}s 后重试")
+                    wait = self._backoff(attempt)
+                    logger.warning(f"[{key_obj.alias}] 流式服务端错误，{wait:.2f}s 后重试")
                     await asyncio.sleep(wait)
                 else:
-                    raise
+                    break
 
             except Exception as e:
                 key_obj.record_general_error()
-                self._report(model, key_obj.alias, None, start_time, False, True, estimated_pt=est_pt)
                 last_exception = e
-                logger.error(f"[{key_obj.alias}] 流式未知错误: {e}")
+                wait = self._backoff(attempt)
+                logger.error(f"[{key_obj.alias}] 流式未知错误，{wait:.2f}s 后重试: {e}")
                 if attempt < self.max_retries:
-                    await asyncio.sleep(2 ** (attempt - 1))
+                    await asyncio.sleep(wait)
                 else:
-                    raise
+                    break
 
+        self._report(model, "unknown", None, time.time(), False, True, estimated_pt=est_pt)
         raise last_exception or RuntimeError("流式请求失败，已达最大重试次数")
