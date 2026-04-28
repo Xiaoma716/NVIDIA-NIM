@@ -4,6 +4,7 @@
 v2.2：新增前置准入控制 (Admission Control)，原子性预扣配额防止429雪崩
 """
 
+import json
 import time
 import asyncio
 import random
@@ -279,7 +280,10 @@ class NvidiaProxy:
                         if first_token_time is None:
                             first_token_time = time.time()
                     stream_started = True
-                    yield f"data: {chunk.model_dump_json()}\n\n"
+                    chunk_dict = chunk.model_dump()
+                    if not isinstance(chunk_dict.get("id"), str):
+                        chunk_dict["id"] = "chatcmpl-nim-proxy"
+                    yield f"data: {json.dumps(chunk_dict, ensure_ascii=False)}\n\n"
 
                 yield "data: [DONE]\n\n"
 
