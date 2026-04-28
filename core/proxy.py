@@ -10,6 +10,7 @@ import math
 import random
 from typing import AsyncGenerator, Any, Dict, List, Optional, Tuple
 
+import httpx
 from loguru import logger
 from openai import AsyncOpenAI, RateLimitError, APIStatusError, APIConnectionError
 
@@ -39,11 +40,25 @@ class NvidiaProxy:
         base_url: str,
         max_retries: int = 3,
         stats_manager=None,
+        http_client: Optional[httpx.AsyncClient] = None,
     ):
         self.balancer = balancer
         self.base_url = base_url
         self.max_retries = max_retries
         self.stats = stats_manager
+        if http_client is not None:
+            self._shared_http_client = http_client
+        else:
+            try:
+                import h2
+                _http2 = True
+            except ImportError:
+                _http2 = False
+            self._shared_http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(120.0, connect=10.0),
+                limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+                http2=_http2,
+            )
 
     @staticmethod
     def _filter_extra_params(extra_params: Dict) -> Dict:
@@ -57,7 +72,7 @@ class NvidiaProxy:
         return AsyncOpenAI(
             base_url=self.base_url,
             api_key=api_key,
-            timeout=120.0,
+            http_client=self._shared_http_client,
         )
 
     @staticmethod

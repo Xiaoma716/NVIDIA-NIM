@@ -7,6 +7,8 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
+
 from core.config import cfg
 from core.key_pool import KeyPool, KeyHealthChecker
 from core.balancer import LoadBalancer
@@ -106,6 +108,17 @@ def create_app() -> FastAPI:
 
     write_buffer = WriteBuffer(flush_interval=5.0, max_buffer_size=100)
 
+    try:
+        import h2
+        _http2 = True
+    except ImportError:
+        _http2 = False
+    shared_http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(120.0, connect=10.0),
+        limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+        http2=_http2,
+    )
+
     key_pool = KeyPool(
         keys_config=cfg.keys,
         rpm_limit=cfg.rpm_limit,
@@ -127,6 +140,7 @@ def create_app() -> FastAPI:
         base_url=cfg.base_url,
         max_retries=cfg.balancer.get("max_retries", 3),
         stats_manager=stats_manager,
+        http_client=shared_http_client,
     )
     model_manager = ModelManager(
         base_url=cfg.base_url,
@@ -172,6 +186,7 @@ def create_app() -> FastAPI:
         yield
         await write_buffer.stop()
         await health_checker.stop()
+        await shared_http_client.aclose()
         logger.info("服务已关闭")
 
     app = FastAPI(
@@ -184,19 +199,10 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def log_requests(request: Request, call_next):
         if request.url.path.startswith("/v1/"):
-            body = await request.body()
-            try:
-                import json
-                body_str = body.decode("utf-8", errors="ignore")
-                if len(body_str) > 500:
-                    body_preview = body_str[:500] + f"... (total {len(body_str)} chars)"
-                else:
-                    body_preview = body_str
-                logger.info(f"[INBOUND] {request.method} {request.url.path} | User-Agent: {request.headers.get('user-agent', 'unknown')[:80]} | Body: {body_preview}")
-            except Exception:
-                logger.info(f"[INBOUND] {request.method} {request.url.path} | Body: (binary, {len(body)} bytes)")
-            from starlette.requests import Request as StarletteRequest
-            new_request = StarletteRequest(request.scope, receive=lambda: __import__("asyncio").sleep(0) or __import__("asyncio").create_future().__class__(lambda f: f.set_result(body))())
+            logger.info(
+                f"[INBOUND] {request.method} {request.url.path} | "
+                f"User-Agent: {request.headers.get('user-agent', 'unknown')[:80]}"
+            )
         response = await call_next(request)
         return response
 
