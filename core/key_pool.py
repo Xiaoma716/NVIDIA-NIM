@@ -332,12 +332,14 @@ class KeyHealthChecker:
         self.base_url = base_url.rstrip("/")
         self._task: Optional[asyncio.Task] = None
         self._running = False
+        self._http_client: Optional[httpx.AsyncClient] = None
 
     async def start(self):
         """启动后台健康检查任务"""
         if self._running:
             return
         self._running = True
+        self._http_client = httpx.AsyncClient(timeout=self.CHECK_TIMEOUT)
         self._task = asyncio.create_task(self._check_loop())
         logger.info(f"🩺 Key健康检查器已启动 (间隔: {self.CHECK_INTERVAL}s)")
 
@@ -350,6 +352,9 @@ class KeyHealthChecker:
                 await self._task
             except asyncio.CancelledError:
                 pass
+        if self._http_client:
+            await self._http_client.aclose()
+            self._http_client = None
         logger.info("Key健康检查器已停止")
 
     async def _check_loop(self):
@@ -378,14 +383,13 @@ class KeyHealthChecker:
             checked_aliases.add(api_key.alias)
 
             try:
-                async with httpx.AsyncClient(timeout=self.CHECK_TIMEOUT) as client:
-                    response = await client.get(
-                        url,
-                        headers={
-                            "Authorization": f"Bearer {api_key.key}",
-                            "Content-Type": "application/json",
-                        },
-                    )
+                response = await self._http_client.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {api_key.key}",
+                        "Content-Type": "application/json",
+                    },
+                )
 
                 if response.status_code in (401, 403):
                     api_key.disable(

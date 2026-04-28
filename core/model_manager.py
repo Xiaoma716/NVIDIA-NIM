@@ -85,6 +85,7 @@ class ModelManager:
         # 记录最后一次从NVIDIA拉取的时间
         self.last_fetch_time: Optional[float] = None
         self.last_fetch_status: str = "未拉取"
+        self._http_client: Optional[httpx.AsyncClient] = None
 
     @property
     def default_model(self) -> str:
@@ -137,6 +138,9 @@ class ModelManager:
             logger.error("没有可用的 API Key，无法拉取模型列表")
             return False
 
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(timeout=15.0)
+
         url = f"{self.base_url}/models"
 
         for key_index, api_key in enumerate(self.api_keys):
@@ -147,8 +151,7 @@ class ModelManager:
 
             try:
                 logger.info(f"正在从 NVIDIA 拉取模型列表 (Key-{key_index + 1}/{len(self.api_keys)}): {url}")
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    response = await client.get(url, headers=headers)
+                response = await self._http_client.get(url, headers=headers)
 
                 if response.status_code != 200:
                     logger.warning(f"Key-{key_index + 1} 返回 HTTP {response.status_code}，尝试下一个...")

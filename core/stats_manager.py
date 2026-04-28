@@ -492,6 +492,7 @@ class StatsManager:
             }
 
     def get_recent_records(self, limit: int = 50) -> List[Dict]:
+        db_result = []
         try:
             with self._engine.connect() as conn:
                 rows = conn.execute(text(
@@ -517,15 +518,11 @@ class StatsManager:
                     }
                     for r in rows
                 ]
-                if db_result:
-                    return db_result
         except Exception as e:
             logger.warning(f"从数据库查询最近记录失败，回退到内存: {e}")
 
         with self._lock:
-            records = list(self._records)[-limit:]
-            records.reverse()
-            return [
+            mem_records = [
                 {
                     "time": r.timestamp,
                     "model": r.model,
@@ -539,5 +536,14 @@ class StatsManager:
                     "ttft_ms": r.ttft_ms,
                     "tokens_per_second": r.tokens_per_second,
                 }
-                for r in records
+                for r in reversed(self._records)
             ]
+
+        db_times = {r["time"] for r in db_result}
+        merged = db_result[:]
+        for r in mem_records:
+            if r["time"] not in db_times:
+                merged.append(r)
+
+        merged.sort(key=lambda x: x["time"], reverse=True)
+        return merged[:limit]

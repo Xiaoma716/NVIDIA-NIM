@@ -108,8 +108,7 @@ class LoadBalancer:
 
     async def _acquire_fast_async(self) -> Optional[APIKey]:
         """快速失败模式：原子性预扣配额，不足立即返回 None"""
-        loop = asyncio.get_event_loop()
-        key = await loop.run_in_executor(None, self.key_pool.try_acquire)
+        key = await asyncio.to_thread(self.key_pool.try_acquire)
         if key is None:
             total = self.key_pool.get_total_remaining()
             logger.warning(
@@ -122,11 +121,10 @@ class LoadBalancer:
         排队等待模式：先尝试预扣，失败则智能等待到有配额释放
         超时后返回 None
         """
-        loop = asyncio.get_event_loop()
         start = time.time()
 
         while True:
-            key = await loop.run_in_executor(None, self.key_pool.try_acquire)
+            key = await asyncio.to_thread(self.key_pool.try_acquire)
             if key:
                 return key
 

@@ -1,10 +1,4 @@
-"""
-异步写入缓冲区
-将请求记录批量写入SQLite，减少磁盘IO频率
-"""
-
 import asyncio
-import math
 from collections import deque
 from typing import List, Optional
 
@@ -19,12 +13,13 @@ class WriteBuffer:
         flush_interval: float = 5.0,
         max_buffer_size: int = 100,
     ):
-        self._buffer: deque = deque(maxlen=max_buffer_size + 1)
+        self._buffer: deque = deque()
         self._flush_interval = flush_interval
         self._max_buffer_size = max_buffer_size
         self._task: Optional[asyncio.Task] = None
         self._running = False
         self._flush_callback = None
+        self._flush_lock = asyncio.Lock()
 
     def set_flush_callback(self, callback):
         self._flush_callback = callback
@@ -66,12 +61,17 @@ class WriteBuffer:
     async def _flush_all(self):
         if not self._buffer or not self._flush_callback:
             return
-        batch: List[RequestRecord] = list(self._buffer)
-        self._buffer.clear()
-        try:
-            await self._flush_callback(batch)
-        except Exception as e:
-            logger.error(f"批量写入数据库失败 ({len(batch)}条): {e}")
+        async with self._flush_lock:
+            if not self._buffer:
+                return
+            batch: List[RequestRecord] = list(self._buffer)
+            self._buffer.clear()
+            try:
+                await self._flush_callback(batch)
+            except Exception as e:
+                for record in batch:
+                    self._buffer.append(record)
+                logger.error(f"批量写入数据库失败 ({len(batch)}条)，数据已回退到缓冲区: {e}")
 
     @property
     def pending_count(self) -> int:
