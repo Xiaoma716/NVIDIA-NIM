@@ -10,6 +10,7 @@
 
 import time
 import math
+import asyncio
 import threading
 from collections import deque, defaultdict
 from dataclasses import dataclass, field
@@ -181,96 +182,98 @@ class StatsManager:
         if not records:
             return
         try:
-            with self._engine.begin() as conn:
-                for r in records:
-                    minute_ts = math.floor(r.timestamp / 60) * 60
-                    success_int = 1 if r.success else 0
-                    stream_int = 1 if r.stream else 0
-                    errors_val = 0 if r.success else 1
-
-                    conn.execute(text(
-                        "INSERT INTO request_logs "
-                        "(timestamp, model, key_alias, prompt_tokens, completion_tokens, "
-                        "total_tokens, latency_ms, success, stream, error_type, error_msg, "
-                        "ttft_ms, tokens_per_second) "
-                        "VALUES (:ts, :m, :ka, :pt, :ct, :tt, :lm, :suc, :strm, :et, :em, "
-                        ":ttft, :tps)"
-                    ), {
-                        "ts": r.timestamp, "m": r.model, "ka": r.key_alias,
-                        "pt": r.prompt_tokens, "ct": r.completion_tokens,
-                        "tt": r.total_tokens, "lm": r.latency_ms,
-                        "suc": success_int, "strm": stream_int,
-                        "et": r.error_type, "em": r.error_msg,
-                        "ttft": r.ttft_ms, "tps": r.tokens_per_second,
-                    })
-
-                    conn.execute(text(
-                        "INSERT INTO model_stats "
-                        "(model_id, total_requests, total_errors, prompt_tokens, "
-                        "completion_tokens, total_tokens, total_latency_ms, "
-                        "latency_count, last_seen_at, first_seen_at) "
-                        "VALUES (:mid, 1, :te, :pt, :ct, :tt, :tlm, 1, :ls, :fs) "
-                        "ON CONFLICT(model_id) DO UPDATE SET "
-                        "total_requests=total_requests+1, "
-                        "total_errors=total_errors+:te, "
-                        "prompt_tokens=prompt_tokens+:pt, "
-                        "completion_tokens=completion_tokens+:ct, "
-                        "total_tokens=total_tokens+:tt, "
-                        "total_latency_ms=total_latency_ms+:tlm, "
-                        "latency_count=latency_count+1, "
-                        "last_seen_at=:ls"
-                    ), {
-                        "mid": r.model, "te": errors_val,
-                        "pt": r.prompt_tokens, "ct": r.completion_tokens,
-                        "tt": r.total_tokens, "tlm": r.latency_ms,
-                        "ls": r.timestamp, "fs": r.timestamp,
-                    })
-
-                    conn.execute(text(
-                        "INSERT INTO key_stats "
-                        "(key_alias, total_requests, total_errors, rate_limit_errors, "
-                        "prompt_tokens, completion_tokens, total_tokens, "
-                        "last_seen_at, disabled, disable_reason, updated_at) "
-                        "VALUES (:ka, 1, :te, 0, :pt, :ct, :tt, :ls, 0, '', :ua) "
-                        "ON CONFLICT(key_alias) DO UPDATE SET "
-                        "total_requests=total_requests+1, "
-                        "total_errors=total_errors+:te, "
-                        "prompt_tokens=prompt_tokens+:pt, "
-                        "completion_tokens=completion_tokens+:ct, "
-                        "total_tokens=total_tokens+:tt, "
-                        "last_seen_at=:ls, updated_at=:ua"
-                    ), {
-                        "ka": r.key_alias, "te": errors_val,
-                        "pt": r.prompt_tokens, "ct": r.completion_tokens,
-                        "tt": r.total_tokens, "ls": r.timestamp, "ua": r.timestamp,
-                    })
-
-                    conn.execute(text(
-                        "INSERT INTO timeline_slots "
-                        "(slot_time, requests, errors, prompt_tokens, "
-                        "completion_tokens, total_tokens, total_latency_ms) "
-                        "VALUES (:st, 1, :e, :pt, :ct, :tt, :tlm) "
-                        "ON CONFLICT(slot_time) DO UPDATE SET "
-                        "requests=requests+1, errors=errors+:e, "
-                        "prompt_tokens=prompt_tokens+:pt, "
-                        "completion_tokens=completion_tokens+:ct, "
-                        "total_tokens=total_tokens+:tt, "
-                        "total_latency_ms=total_latency_ms+:tlm"
-                    ), {
-                        "st": minute_ts, "e": errors_val,
-                        "pt": r.prompt_tokens, "ct": r.completion_tokens,
-                        "tt": r.total_tokens, "tlm": r.latency_ms,
-                    })
-
-                cutoff = time.time() - self.WINDOW_MINUTES * 60
-                conn.execute(
-                    text("DELETE FROM timeline_slots WHERE slot_time < :cutoff"),
-                    {"cutoff": cutoff},
-                )
-
+            await asyncio.to_thread(self._do_flush_sync, records)
         except Exception as e:
             logger.error(f"批量写入数据库失败 ({len(records)}条): {e}")
             raise
+
+    def _do_flush_sync(self, records: List[RequestRecord]):
+        with self._engine.begin() as conn:
+            for r in records:
+                minute_ts = math.floor(r.timestamp / 60) * 60
+                success_int = 1 if r.success else 0
+                stream_int = 1 if r.stream else 0
+                errors_val = 0 if r.success else 1
+
+                conn.execute(text(
+                    "INSERT INTO request_logs "
+                    "(timestamp, model, key_alias, prompt_tokens, completion_tokens, "
+                    "total_tokens, latency_ms, success, stream, error_type, error_msg, "
+                    "ttft_ms, tokens_per_second) "
+                    "VALUES (:ts, :m, :ka, :pt, :ct, :tt, :lm, :suc, :strm, :et, :em, "
+                    ":ttft, :tps)"
+                ), {
+                    "ts": r.timestamp, "m": r.model, "ka": r.key_alias,
+                    "pt": r.prompt_tokens, "ct": r.completion_tokens,
+                    "tt": r.total_tokens, "lm": r.latency_ms,
+                    "suc": success_int, "strm": stream_int,
+                    "et": r.error_type, "em": r.error_msg,
+                    "ttft": r.ttft_ms, "tps": r.tokens_per_second,
+                })
+
+                conn.execute(text(
+                    "INSERT INTO model_stats "
+                    "(model_id, total_requests, total_errors, prompt_tokens, "
+                    "completion_tokens, total_tokens, total_latency_ms, "
+                    "latency_count, last_seen_at, first_seen_at) "
+                    "VALUES (:mid, 1, :te, :pt, :ct, :tt, :tlm, 1, :ls, :fs) "
+                    "ON CONFLICT(model_id) DO UPDATE SET "
+                    "total_requests=total_requests+1, "
+                    "total_errors=total_errors+:te, "
+                    "prompt_tokens=prompt_tokens+:pt, "
+                    "completion_tokens=completion_tokens+:ct, "
+                    "total_tokens=total_tokens+:tt, "
+                    "total_latency_ms=total_latency_ms+:tlm, "
+                    "latency_count=latency_count+1, "
+                    "last_seen_at=:ls"
+                ), {
+                    "mid": r.model, "te": errors_val,
+                    "pt": r.prompt_tokens, "ct": r.completion_tokens,
+                    "tt": r.total_tokens, "tlm": r.latency_ms,
+                    "ls": r.timestamp, "fs": r.timestamp,
+                })
+
+                conn.execute(text(
+                    "INSERT INTO key_stats "
+                    "(key_alias, total_requests, total_errors, rate_limit_errors, "
+                    "prompt_tokens, completion_tokens, total_tokens, "
+                    "last_seen_at, disabled, disable_reason, updated_at) "
+                    "VALUES (:ka, 1, :te, 0, :pt, :ct, :tt, :ls, 0, '', :ua) "
+                    "ON CONFLICT(key_alias) DO UPDATE SET "
+                    "total_requests=total_requests+1, "
+                    "total_errors=total_errors+:te, "
+                    "prompt_tokens=prompt_tokens+:pt, "
+                    "completion_tokens=completion_tokens+:ct, "
+                    "total_tokens=total_tokens+:tt, "
+                    "last_seen_at=:ls, updated_at=:ua"
+                ), {
+                    "ka": r.key_alias, "te": errors_val,
+                    "pt": r.prompt_tokens, "ct": r.completion_tokens,
+                    "tt": r.total_tokens, "ls": r.timestamp, "ua": r.timestamp,
+                })
+
+                conn.execute(text(
+                    "INSERT INTO timeline_slots "
+                    "(slot_time, requests, errors, prompt_tokens, "
+                    "completion_tokens, total_tokens, total_latency_ms) "
+                    "VALUES (:st, 1, :e, :pt, :ct, :tt, :tlm) "
+                    "ON CONFLICT(slot_time) DO UPDATE SET "
+                    "requests=requests+1, errors=errors+:e, "
+                    "prompt_tokens=prompt_tokens+:pt, "
+                    "completion_tokens=completion_tokens+:ct, "
+                    "total_tokens=total_tokens+:tt, "
+                    "total_latency_ms=total_latency_ms+:tlm"
+                ), {
+                    "st": minute_ts, "e": errors_val,
+                    "pt": r.prompt_tokens, "ct": r.completion_tokens,
+                    "tt": r.total_tokens, "tlm": r.latency_ms,
+                })
+
+            cutoff = time.time() - self.WINDOW_MINUTES * 60
+            conn.execute(
+                text("DELETE FROM timeline_slots WHERE slot_time < :cutoff"),
+                {"cutoff": cutoff},
+            )
 
     # ------------------------------------------------------------------
     # 核心写入接口
@@ -539,10 +542,10 @@ class StatsManager:
                 for r in reversed(self._records)
             ]
 
-        db_times = {r["time"] for r in db_result}
+        db_keys = {(r["time"], r["model"], r["key_alias"]) for r in db_result}
         merged = db_result[:]
         for r in mem_records:
-            if r["time"] not in db_times:
+            if (r["time"], r["model"], r["key_alias"]) not in db_keys:
                 merged.append(r)
 
         merged.sort(key=lambda x: x["time"], reverse=True)

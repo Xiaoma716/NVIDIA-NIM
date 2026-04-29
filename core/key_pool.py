@@ -251,19 +251,24 @@ class KeyPool:
         """获取所有可用Key的总剩余配额（用于前置准入判断）"""
         return sum(k.get_remaining_quota() for k in self.keys if k.is_available())
 
-    def try_acquire(self) -> Optional[APIKey]:
+    def try_acquire(self, select_fn=None) -> Optional[APIKey]:
         """
         原子性尝试获取一个可用Key（带预扣）
         - 在全局锁内完成：检查总量 → 按策略选择Key → 预扣配额
         - 配额不足时立即返回 None（不阻塞、不等待）
         - 返回的 Key 已被 pre_acquire，调用方后续 record_request() 不会重复计数
         - 若获取到 Key 但请求未实际发出，需调用 key.release_pre_acquire() 回滚
+        - select_fn: 可选的选择函数，签名为 (available: List[APIKey]) -> APIKey
+          若不传则默认使用 most_remaining 策略
         """
         with self._acquire_lock:
             available = [k for k in self.keys if k.is_available()]
             if not available:
                 return None
-            selected = max(available, key=lambda k: k.get_remaining_quota())
+            if select_fn:
+                selected = select_fn(available)
+            else:
+                selected = max(available, key=lambda k: k.get_remaining_quota())
             selected.pre_acquire()
             return selected
 

@@ -257,7 +257,7 @@ def _convert_messages(anthropic_messages: List[Dict]) -> List[Dict]:
             if has_tool_use and role == "assistant":
                 result.append(_convert_tool_use_message(content))
             elif has_tool_result and role == "user":
-                result.append(_convert_tool_result_message(content))
+                result.extend(_convert_tool_result_message(content))
             else:
                 text_parts = []
                 for block in content:
@@ -341,7 +341,7 @@ def _convert_tool_use_message(content: List[Dict]) -> Dict:
     return msg
 
 
-def _convert_tool_result_message(content: List[Dict]) -> Dict:
+def _convert_tool_result_message(content: List[Dict]) -> List[Dict]:
     tool_results = []
     for block in content:
         if block.get("type") == "tool_result":
@@ -352,22 +352,17 @@ def _convert_tool_result_message(content: List[Dict]) -> Dict:
                 "content": result_text,
             })
 
-    if len(tool_results) == 1:
-        return {
+    if not tool_results:
+        return [{"role": "user", "content": ""}]
+
+    messages = []
+    for tr in tool_results:
+        messages.append({
             "role": "tool",
-            "tool_call_id": tool_results[0]["tool_id"],
-            "content": tool_results[0]["content"],
-        }
-    elif len(tool_results) > 1:
-        combined = []
-        for tr in tool_results:
-            combined.append(f"[tool_result:{tr['tool_id']}] {tr['content']}")
-        return {
-            "role": "tool",
-            "tool_call_id": tool_results[0]["tool_id"],
-            "content": "\n".join(combined),
-        }
-    return {"role": "user", "content": ""}
+            "tool_call_id": tr["tool_id"],
+            "content": tr["content"],
+        })
+    return messages
 
 
 def _convert_anthropic_tools(tools: List[Dict]) -> List[Dict]:
@@ -395,6 +390,10 @@ def _ensure_alternating_roles(messages: List[Dict]) -> List[Dict]:
     for msg in messages:
         role = msg.get("role", "user")
         if role == "system":
+            result.append(msg)
+            continue
+
+        if role == "tool":
             result.append(msg)
             continue
 
