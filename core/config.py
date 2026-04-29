@@ -88,5 +88,17 @@ class _Config:
     def rpm_buffer(self) -> int:
         return self.nvidia.get("rpm_buffer", 5)
 
+    @property
+    def anthropic(self) -> dict:
+        return self._data.get("anthropic", {})
+
+    @property
+    def anthropic_model_mapping(self) -> dict:
+        return self.anthropic.get("model_mapping", {})
+
+    @property
+    def anthropic_default_model(self) -> str:
+        return self.anthropic.get("default_model", "claude-3-sonnet-20240229")
+
 
 cfg = _Config()

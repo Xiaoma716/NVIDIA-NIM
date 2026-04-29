@@ -172,7 +172,7 @@ def create_app() -> FastAPI:
         host = server_cfg.get("host", "127.0.0.1")
         port = server_cfg.get("port", 8000)
         logger.info("=" * 55)
-        logger.info("  🚀 NVIDIA NIM Load Balancer v2.2 启动成功！")
+        logger.info("  🚀 NVIDIA NIM Load Balancer v2.3 启动成功！")
         logger.info("=" * 55)
         logger.info(f"  📡 代理地址  : http://{host}:{port}/v1")
         logger.info(f"  📊 监控面板  : http://{host}:{port}/dashboard")
@@ -182,6 +182,10 @@ def create_app() -> FastAPI:
         logger.info(f"  📈 统计追踪  : 已启用（24h窗口 + SQLite持久化）")
         logger.info(f"  [DB] 数据库    : SQLite (WAL模式, 批量写入5s)")
         logger.info(f"  [HC] 健康检查  : 已启用（每1小时）")
+        anthropic_default = cfg.anthropic_default_model
+        anthropic_mapping_count = len(cfg.anthropic_model_mapping)
+        logger.info(f"  [AT] Anthropic : /v1/messages (映射 {anthropic_mapping_count} 个模型)")
+        logger.info(f"  [AT] 默认模型  : {anthropic_default}")
         logger.info("=" * 55)
         yield
         await write_buffer.stop()
@@ -191,7 +195,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="NVIDIA NIM Load Balancer",
-        version="2.2.0",
+        version="2.3.0",
         docs_url="/docs",
         lifespan=lifespan,
     )

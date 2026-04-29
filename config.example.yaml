@@ -1,0 +1,43 @@
+# NVIDIA NIM Load Balancer 配置文件
+# 复制此文件为 config.yaml 并填入你的 API Key
+
+keys:
+  - key: "nvapi-xxxxxxxxxxxx"
+  - key: "nvapi-yyyyyyyyyyyy"
+
+nvidia:
+  base_url: "https://integrate.api.nvidia.com/v1"
+  default_model: "meta/llama-3.1-70b-instruct"
+  rpm_limit: 40
+  rpm_buffer: 5
+
+balancer:
+  strategy: "most_remaining"
+  wait_timeout: 65
+  max_retries: 3
+  admission_mode: "reject_fast"
+  queue_wait_timeout: 30
+
+server:
+  port: 8000
+
+logging:
+  level: "INFO"
+  rotation: "50 MB"
+  retention: "7 days"
+
+models:
+  auto_fetch: true
+  fallback_list:
+    - "meta/llama-3.1-70b-instruct"
+    - "meta/llama-3.1-405b-instruct"
+    - "meta/llama-3.1-8b-instruct"
+    - "nvidia/llama-3.1-nemotron-70b-instruct"
+
+anthropic:
+  default_model: "claude-haiku-4-5-20251001"
+  model_mapping:
+    "claude-opus-4-7": "moonshotai/kimi-k2.5"
+    "claude-opus-4-6": "moonshotai/kimi-k2.5"
+    "claude-sonnet-4-6": "qwen/qwen3.5-397b-a17b"
+    "claude-haiku-4-5-20251001": "moonshotai/kimi-k2-instruct-0905"

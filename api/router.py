@@ -1,14 +1,15 @@
 """
 API路由层
-完全兼容 OpenAI 格式，新增模型管理接口
+完全兼容 OpenAI 格式 + Anthropic Messages API 格式
 新增：/api/stats/* 统计数据接口
+新增：/v1/messages Anthropic 兼容端点
 重构：使用 FastAPI 依赖注入替代模块级全局变量
 """
 
 import time
 from typing import Any, Dict, List, Optional, Union
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from loguru import logger
@@ -19,6 +20,7 @@ from core.key_pool import KeyPool
 from core.model_manager import ModelManager
 from core.stats_manager import StatsManager
 from core.config import cfg
+from core import anthropic_adapter
 
 
 class AppState:
@@ -112,6 +114,52 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: Optional[int] = 1024
     top_p: Optional[float] = 1.0
     stream: Optional[bool] = False
+    model_config = {"extra": "allow"}
+
+
+class AnthropicContentBlock(BaseModel):
+    type: str
+    text: Optional[str] = None
+    source: Optional[Dict] = None
+    id: Optional[str] = None
+    name: Optional[str] = None
+    input: Optional[Dict] = None
+    tool_use_id: Optional[str] = None
+    content: Optional[Any] = None
+    model_config = {"extra": "allow"}
+
+
+class AnthropicMessage(BaseModel):
+    role: str
+    content: Union[str, List[AnthropicContentBlock]]
+    model_config = {"extra": "allow"}
+
+
+class AnthropicToolInputSchema(BaseModel):
+    type: str = "object"
+    properties: Optional[Dict] = None
+    required: Optional[List[str]] = None
+    model_config = {"extra": "allow"}
+
+
+class AnthropicTool(BaseModel):
+    name: str
+    description: Optional[str] = None
+    input_schema: AnthropicToolInputSchema
+    model_config = {"extra": "allow"}
+
+
+class AnthropicRequest(BaseModel):
+    model: str
+    messages: List[AnthropicMessage]
+    max_tokens: int = 4096
+    system: Optional[Union[str, List[AnthropicContentBlock]]] = None
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    stream: Optional[bool] = False
+    stop_sequences: Optional[List[str]] = None
+    tools: Optional[List[AnthropicTool]] = None
+    metadata: Optional[Dict] = None
     model_config = {"extra": "allow"}
 
 
@@ -271,13 +319,8 @@ async def fetch_models(state: AppState = Depends(get_app_state)):
 
 
 # ------------------------------------------------------------------
-# OpenAI 兼容接口
+# OpenAI + Anthropic 兼容接口
 # ------------------------------------------------------------------
-
-@router.get("/v1/models", tags=["OpenAI兼容"])
-async def list_models(state: AppState = Depends(get_app_state)):
-    enabled_models = state.model_manager.get_enabled_models()
-    return {"object": "list", "data": [m.to_dict() for m in enabled_models]}
 
 
 @router.post("/v1/chat/completions", tags=["OpenAI兼容"])
@@ -343,3 +386,99 @@ async def chat_completions(request: ChatCompletionRequest, state: AppState = Dep
     except Exception as e:
         logger.error(f"处理请求时发生错误: {e}")
         raise HTTPException(status_code=500, detail=f"内部错误: {str(e)}")
+
+
+# ------------------------------------------------------------------
+# Anthropic 兼容接口
+# ------------------------------------------------------------------
+
+@router.get("/v1/models", tags=["模型列表"])
+async def list_models(request: Request, state: AppState = Depends(get_app_state)):
+    enabled_models = state.model_manager.get_enabled_models()
+    openai_data = [m.to_dict() for m in enabled_models]
+
+    anthropic_version = request.headers.get("anthropic-version", "")
+    if anthropic_version:
+        return anthropic_adapter.convert_models_to_anthropic(openai_data)
+
+    return {"object": "list", "data": openai_data}
+
+
+@router.post("/v1/messages", tags=["Anthropic兼容"])
+async def anthropic_messages(request: AnthropicRequest, state: AppState = Depends(get_app_state)):
+    original_model = request.model
+    nvidia_model = anthropic_adapter.map_model_to_nvidia(original_model)
+
+    if state.model_manager and not state.model_manager.is_model_enabled(nvidia_model):
+        err = anthropic_adapter.convert_error(
+            400, f"模型 '{original_model}' (映射为 '{nvidia_model}') 未启用或不存在"
+        )
+        raise HTTPException(status_code=400, detail=err)
+
+    anthropic_dict = request.model_dump()
+    openai_req = anthropic_adapter.convert_request(anthropic_dict)
+
+    messages = openai_req["messages"]
+    model = openai_req["model"]
+    temperature = openai_req.get("temperature", 0.7)
+    max_tokens = openai_req.get("max_tokens", 4096)
+    top_p = openai_req.get("top_p", 1.0)
+    extra_params = {}
+    if "stop" in openai_req:
+        extra_params["stop"] = openai_req["stop"]
+    if "tools" in openai_req:
+        extra_params["tools"] = openai_req["tools"]
+
+    logger.info(
+        f"[Anthropic] 收到请求 | model={original_model} -> {model} | "
+        f"stream={request.stream} | messages={len(messages)}条"
+    )
+
+    try:
+        if request.stream:
+            raw_stream = state.proxy.chat_completion_raw_stream(
+                messages=messages, model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                top_p=top_p,
+                extra_params=extra_params,
+            )
+
+            async def anthropic_stream_generator():
+                async for anthropic_chunk in anthropic_adapter.convert_stream(
+                    raw_stream, original_model
+                ):
+                    yield anthropic_chunk
+
+            return StreamingResponse(
+                anthropic_stream_generator(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+        else:
+            response = await state.proxy.chat_completion(
+                messages=messages, model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                top_p=top_p,
+                extra_params=extra_params,
+            )
+            anthropic_resp = anthropic_adapter.convert_response(
+                response.model_dump(), original_model
+            )
+            return JSONResponse(content=anthropic_resp)
+
+    except AdmissionRejectedException as e:
+        logger.warning(f"[Anthropic] 准入控制拒绝: {e.info['error']}")
+        err = anthropic_adapter.convert_error(429, e.info)
+        raise HTTPException(status_code=429, detail=err, headers={"Retry-After": "5"})
+    except RuntimeError as e:
+        err = anthropic_adapter.convert_error(503, str(e))
+        raise HTTPException(status_code=503, detail=err)
+    except Exception as e:
+        logger.error(f"[Anthropic] 处理请求时发生错误: {e}")
+        err = anthropic_adapter.convert_error(500, str(e))
+        raise HTTPException(status_code=500, detail=err)
