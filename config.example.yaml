@@ -41,3 +41,11 @@ anthropic:
     "claude-opus-4-6": "moonshotai/kimi-k2.5"
     "claude-sonnet-4-6": "qwen/qwen3.5-397b-a17b"
     "claude-haiku-4-5-20251001": "moonshotai/kimi-k2-instruct-0905"
+    context_windows:
+    "claude-opus-4-7": 1000000
+    "claude-opus-4-6": 1000000
+    "claude-sonnet-4-6": 256000
+    "claude-haiku-4-5-20251001": 200000
+  default_context_window: 200000
+  truncation_strategy: "recent"
+  truncation_buffer_ratio: 0.10  

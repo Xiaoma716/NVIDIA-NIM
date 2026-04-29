@@ -59,6 +59,121 @@ def map_finish_reason(stop_reason: Optional[str]) -> str:
     return _STOP_REASON_MAP.get(stop_reason, "stop")
 
 
+def get_context_window(anthropic_model: str) -> int:
+    context_windows = cfg.anthropic_context_windows
+    if anthropic_model in context_windows:
+        return context_windows[anthropic_model]
+    return cfg.anthropic_default_context_window
+
+
+def estimate_tokens_for_messages(messages: List[Dict]) -> int:
+    total_chars = 0
+    for msg in messages:
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            total_chars += len(content)
+        elif isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    total_chars += len(part.get("text", ""))
+                elif isinstance(part, dict):
+                    total_chars += len(json.dumps(part, ensure_ascii=False))
+        role = msg.get("role", "")
+        total_chars += len(role) + 4
+        if msg.get("tool_calls"):
+            for tc in msg["tool_calls"]:
+                fn = tc.get("function", {})
+                total_chars += len(fn.get("name", ""))
+                total_chars += len(fn.get("arguments", ""))
+        if msg.get("tool_call_id"):
+            total_chars += len(msg.get("tool_call_id", ""))
+    return max(1, int(total_chars / 3.5)) + len(messages) * 4
+
+
+def truncate_messages(
+    messages: List[Dict],
+    max_context_tokens: int,
+    buffer_ratio: float = 0.10,
+    strategy: str = "recent",
+) -> tuple:
+    """
+    智能截断消息列表以适应目标模型的上下文窗口。
+
+    策略:
+      - "recent": 保留 system prompt + 最近的对话轮次，丢弃最早的消息
+      - 始终保持 tool_use / tool_result 配对完整性
+      - 保留 buffer_ratio 比例的上下文给模型回复使用
+
+    返回: (截断后的消息列表, 是否发生了截断, 被移除的token估算)
+    """
+    buffer_tokens = int(max_context_tokens * buffer_ratio)
+    available_tokens = max_context_tokens - buffer_tokens
+
+    estimated = estimate_tokens_for_messages(messages)
+    if estimated <= available_tokens:
+        return messages, False, 0
+
+    logger.warning(
+        f"[上下文截断] 估算 tokens={estimated} 超过可用上限={available_tokens} "
+        f"(总窗口={max_context_tokens}, 缓冲={buffer_tokens}), 开始截断"
+    )
+
+    system_msgs = [m for m in messages if m.get("role") == "system"]
+    non_system_msgs = [m for m in messages if m.get("role") != "system"]
+
+    system_tokens = estimate_tokens_for_messages(system_msgs)
+    remaining_budget = available_tokens - system_tokens
+
+    if remaining_budget <= 0:
+        logger.warning("[上下文截断] system prompt 本身已超出预算，保留全部 system + 最后一条消息")
+        return system_msgs + non_system_msgs[-1:], True, estimated - available_tokens
+
+    kept_non_system = []
+    tokens_used = 0
+
+    if strategy == "recent":
+        for msg in reversed(non_system_msgs):
+            msg_tokens = estimate_tokens_for_messages([msg])
+            paired_msg = None
+            paired_tokens = 0
+
+            if msg.get("role") == "tool":
+                for candidate in reversed(non_system_msgs):
+                    if candidate is msg:
+                        continue
+                    if candidate.get("role") == "assistant" and candidate.get("tool_calls"):
+                        for tc in candidate["tool_calls"]:
+                            if tc.get("id") == msg.get("tool_call_id"):
+                                paired_msg = candidate
+                                paired_tokens = estimate_tokens_for_messages([paired_msg])
+                                break
+                        if paired_msg:
+                            break
+
+            total_needed = msg_tokens + paired_tokens
+            if tokens_used + total_needed > remaining_budget:
+                break
+
+            if paired_msg and paired_msg not in kept_non_system:
+                kept_non_system.insert(0, paired_msg)
+                tokens_used += paired_tokens
+            kept_non_system.insert(0, msg)
+            tokens_used += msg_tokens
+
+    result = system_msgs + kept_non_system
+
+    if kept_non_system and kept_non_system[0].get("role") != "user":
+        result.insert(len(system_msgs), {"role": "user", "content": "[更早的对话上下文已被截断]"})
+
+    removed_tokens = estimated - estimate_tokens_for_messages(result)
+    logger.info(
+        f"[上下文截断] 完成 | 原始消息={len(messages)} -> 保留={len(result)} | "
+        f"移除约 {removed_tokens} tokens"
+    )
+
+    return result, True, removed_tokens
+
+
 def convert_request(anthropic_req: Dict[str, Any]) -> Dict[str, Any]:
     messages = []
 
@@ -508,16 +623,25 @@ def convert_error(status_code: int, detail: Any) -> Dict[str, Any]:
 def convert_models_to_anthropic(openai_models: List[Dict[str, Any]]) -> Dict[str, Any]:
     mapping = cfg.anthropic_model_mapping
     reverse = {v: k for k, v in mapping.items()}
+    context_windows = cfg.anthropic_context_windows
+    default_cw = cfg.anthropic_default_context_window
 
     data = []
     for m in openai_models:
         model_id = m.get("id", "")
         display_id = reverse.get(model_id, model_id)
+        cw = context_windows.get(display_id, default_cw)
         data.append({
             "id": display_id,
-            "object": "model",
-            "created": m.get("created", int(time.time())),
-            "owned_by": m.get("owned_by", "anthropic"),
+            "type": "model",
+            "display_name": display_id,
+            "created_at": m.get("created", int(time.time())),
+            "max_context_window": cw,
         })
 
-    return {"object": "list", "data": data}
+    return {
+        "data": data,
+        "has_more": False,
+        "first_id": data[0]["id"] if data else "",
+        "last_id": data[-1]["id"] if data else "",
+    }

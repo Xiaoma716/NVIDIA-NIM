@@ -6,6 +6,7 @@ API路由层
 重构：使用 FastAPI 依赖注入替代模块级全局变量
 """
 
+import json
 import time
 from typing import Any, Dict, List, Optional, Union
 
@@ -404,6 +405,92 @@ async def list_models(request: Request, state: AppState = Depends(get_app_state)
     return {"object": "list", "data": openai_data}
 
 
+@router.get("/v1/models/{model_id:path}", tags=["模型列表"])
+async def get_model(model_id: str, request: Request, state: AppState = Depends(get_app_state)):
+    anthropic_version = request.headers.get("anthropic-version", "")
+    mapped_id = model_id
+    if anthropic_version:
+        reverse_mapping = {v: k for k, v in cfg.anthropic_model_mapping.items()}
+        if model_id in reverse_mapping:
+            mapped_id = reverse_mapping[model_id]
+        elif model_id in cfg.anthropic_model_mapping:
+            mapped_id = cfg.anthropic_model_mapping[model_id]
+
+    enabled_models = state.model_manager.get_enabled_models()
+    for m in enabled_models:
+        if m.id == mapped_id or m.id == model_id:
+            model_dict = m.to_dict()
+            if anthropic_version:
+                reverse_mapping = {v: k for k, v in cfg.anthropic_model_mapping.items()}
+                display_id = reverse_mapping.get(m.id, m.id)
+                context_window = cfg.anthropic_context_windows.get(display_id, 200000)
+                return {
+                    "id": display_id,
+                    "type": "model",
+                    "display_name": display_id,
+                    "created_at": model_dict.get("created", int(time.time())),
+                    "max_context_window": context_window,
+                }
+            return model_dict
+
+    if anthropic_version:
+        context_window = cfg.anthropic_context_windows.get(model_id, 200000)
+        return {
+            "id": model_id,
+            "type": "model",
+            "display_name": model_id,
+            "created_at": int(time.time()),
+            "max_context_window": context_window,
+        }
+    raise HTTPException(status_code=404, detail=f"模型不存在: {model_id}")
+
+
+@router.post("/v1/messages/count_tokens", tags=["Anthropic兼容"])
+async def anthropic_count_tokens(request: AnthropicRequest, state: AppState = Depends(get_app_state)):
+    original_model = request.model
+    nvidia_model = anthropic_adapter.map_model_to_nvidia(original_model)
+
+    messages = []
+    if request.system is not None:
+        system_content = anthropic_adapter._convert_system_content(request.system)
+        messages.append({"role": "system", "content": system_content})
+
+    for msg in request.messages:
+        content = msg.content
+        if isinstance(content, list):
+            text_parts = []
+            for block in content:
+                if isinstance(block, dict):
+                    if block.get("type") == "text":
+                        text_parts.append(block.get("text", ""))
+                    elif block.get("type") == "tool_result":
+                        text_parts.append(anthropic_adapter._extract_tool_result_text(block))
+                    elif block.get("type") == "tool_use":
+                        text_parts.append(json.dumps(block.get("input", {}), ensure_ascii=False))
+                    else:
+                        text_parts.append(json.dumps(block, ensure_ascii=False))
+                else:
+                    text_parts.append(str(block))
+            content = "\n".join(text_parts)
+        elif not isinstance(content, str):
+            content = str(content)
+        messages.append({"role": msg.role, "content": content})
+
+    if request.tools:
+        for tool in request.tools:
+            tool_json = json.dumps(tool.model_dump() if hasattr(tool, "model_dump") else dict(tool), ensure_ascii=False)
+            messages.append({"role": "system", "content": f"[tool: {tool_json}]"})
+
+    estimated_tokens = NvidiaProxy._estimate_prompt_tokens(messages)
+
+    logger.info(
+        f"[Anthropic] count_tokens | model={original_model} -> {nvidia_model} | "
+        f"estimated={estimated_tokens}"
+    )
+
+    return {"input_tokens": estimated_tokens}
+
+
 @router.post("/v1/messages", tags=["Anthropic兼容"])
 async def anthropic_messages(request: AnthropicRequest, state: AppState = Depends(get_app_state)):
     original_model = request.model
@@ -429,9 +516,24 @@ async def anthropic_messages(request: AnthropicRequest, state: AppState = Depend
     if "tools" in openai_req:
         extra_params["tools"] = openai_req["tools"]
 
+    context_window = anthropic_adapter.get_context_window(original_model)
+    messages, was_truncated, removed_tokens = anthropic_adapter.truncate_messages(
+        messages,
+        max_context_tokens=context_window,
+        buffer_ratio=cfg.anthropic_truncation_buffer_ratio,
+        strategy=cfg.anthropic_truncation_strategy,
+    )
+
+    if was_truncated:
+        logger.warning(
+            f"[Anthropic] 上下文已截断 | model={original_model} | "
+            f"context_window={context_window} | removed~{removed_tokens}tokens"
+        )
+
     logger.info(
         f"[Anthropic] 收到请求 | model={original_model} -> {model} | "
         f"stream={request.stream} | messages={len(messages)}条"
+        f"{' [已截断]' if was_truncated else ''}"
     )
 
     try:
@@ -482,3 +584,16 @@ async def anthropic_messages(request: AnthropicRequest, state: AppState = Depend
         logger.error(f"[Anthropic] 处理请求时发生错误: {e}")
         err = anthropic_adapter.convert_error(500, str(e))
         raise HTTPException(status_code=500, detail=err)
+
+
+@router.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"], tags=["兜底"])
+async def v1_catch_all(path: str, request: Request):
+    logger.warning(
+        f"[Anthropic] 未实现的端点被调用: {request.method} /v1/{path} | "
+        f"headers={dict(request.headers)} | "
+        f"这可能是客户端（如 opencode）请求了代理未实现的 Anthropic API 端点"
+    )
+    err = anthropic_adapter.convert_error(
+        404, f"端点 /v1/{path} 未实现。已实现的端点: /v1/messages, /v1/messages/count_tokens, /v1/models"
+    )
+    raise HTTPException(status_code=404, detail=err)

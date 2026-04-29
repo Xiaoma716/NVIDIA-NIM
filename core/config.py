@@ -100,5 +100,21 @@ class _Config:
     def anthropic_default_model(self) -> str:
         return self.anthropic.get("default_model", "claude-3-sonnet-20240229")
 
+    @property
+    def anthropic_context_windows(self) -> dict:
+        return self.anthropic.get("context_windows", {})
+
+    @property
+    def anthropic_default_context_window(self) -> int:
+        return self.anthropic.get("default_context_window", 200000)
+
+    @property
+    def anthropic_truncation_strategy(self) -> str:
+        return self.anthropic.get("truncation_strategy", "recent")
+
+    @property
+    def anthropic_truncation_buffer_ratio(self) -> float:
+        return self.anthropic.get("truncation_buffer_ratio", 0.10)
+
 
 cfg = _Config()
