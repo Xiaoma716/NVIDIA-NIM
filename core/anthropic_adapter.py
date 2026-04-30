@@ -398,12 +398,56 @@ def _convert_tool_result_message(content: List[Dict]) -> List[Dict]:
     return messages
 
 
+_BUILTIN_TOOL_SCHEMAS = {
+    "web_search": {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Search query"},
+        },
+        "required": ["query"],
+    },
+    "computer": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "description": "Action to perform"},
+            "coordinate": {"type": "array", "items": {"type": "integer"}, "description": "Screen coordinates"},
+            "text": {"type": "string", "description": "Text input"},
+        },
+        "required": ["action"],
+    },
+    "text_editor": {
+        "type": "object",
+        "properties": {
+            "command": {"type": "string", "description": "Editor command"},
+            "path": {"type": "string", "description": "File path"},
+            "file_text": {"type": "string", "description": "File content"},
+            "old_text": {"type": "string", "description": "Text to replace"},
+            "new_text": {"type": "string", "description": "Replacement text"},
+        },
+        "required": ["command", "path"],
+    },
+}
+
+
 def _convert_anthropic_tools(tools: List[Dict]) -> List[Dict]:
     openai_tools = []
     for tool in tools:
+        tool_type = tool.get("type", "")
         name = tool.get("name", "")
         description = tool.get("description", "")
-        input_schema = tool.get("input_schema", {})
+        input_schema = tool.get("input_schema")
+
+        if tool_type and tool_type != "custom" and not input_schema:
+            if name in _BUILTIN_TOOL_SCHEMAS:
+                input_schema = _BUILTIN_TOOL_SCHEMAS[name]
+                if not description:
+                    description = f"Built-in {name} tool (proxied)"
+            else:
+                input_schema = {"type": "object", "properties": {}}
+
+        if input_schema is None:
+            input_schema = {"type": "object", "properties": {}}
+
         openai_tools.append({
             "type": "function",
             "function": {

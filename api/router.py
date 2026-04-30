@@ -146,7 +146,9 @@ class AnthropicToolInputSchema(BaseModel):
 class AnthropicTool(BaseModel):
     name: str
     description: Optional[str] = None
-    input_schema: AnthropicToolInputSchema
+    input_schema: Optional[AnthropicToolInputSchema] = None
+    type: Optional[str] = None
+    max_uses: Optional[int] = None
     model_config = {"extra": "allow"}
 
 
