@@ -48,4 +48,7 @@ anthropic:
     "claude-haiku-4-5-20251001": 200000
   default_context_window: 200000
   truncation_strategy: "recent"
-  truncation_buffer_ratio: 0.10  
+  truncation_buffer_ratio: 0.10
+  enable_thinking: true
+  default_thinking_budget: 1024
+  enable_tool_choice: true  

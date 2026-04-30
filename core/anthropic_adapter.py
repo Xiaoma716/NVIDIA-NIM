@@ -23,6 +23,7 @@ _FINISH_REASON_MAP = {
     "length": "max_tokens",
     "tool_calls": "tool_use",
     "content_filter": "stop_sequence",
+    "pause": "pause_turn",
 }
 
 _STOP_REASON_MAP = {v: k for k, v in _FINISH_REASON_MAP.items()}
@@ -207,12 +208,44 @@ def convert_request(anthropic_req: Dict[str, Any]) -> Dict[str, Any]:
         if openai_tools:
             openai_req["tools"] = openai_tools
 
+    tool_choice = anthropic_req.get("tool_choice")
+    if tool_choice is not None:
+        openai_tool_choice = _convert_tool_choice(tool_choice)
+        if openai_tool_choice is not None:
+            openai_req["tool_choice"] = openai_tool_choice
+
     extra = {}
-    for key in ("metadata",):
+    for key in ("metadata", "thinking", "top_k"):
         if key in anthropic_req:
             extra[key] = anthropic_req[key]
 
     return openai_req
+
+
+def _convert_tool_choice(tool_choice: Any) -> Optional[Dict[str, Any]]:
+    if isinstance(tool_choice, str):
+        choice_map = {
+            "auto": "auto",
+            "any": "required",
+            "none": "none",
+        }
+        mapped = choice_map.get(tool_choice)
+        if mapped:
+            return mapped
+        return None
+    elif isinstance(tool_choice, dict):
+        tc_type = tool_choice.get("type", "auto")
+        if tc_type == "tool":
+            tool_name = tool_choice.get("name", "")
+            if tool_name:
+                return {"type": "function", "function": {"name": tool_name}}
+        elif tc_type == "auto":
+            return "auto"
+        elif tc_type == "any":
+            return "required"
+        elif tc_type == "none":
+            return "none"
+    return None
 
 
 def _convert_system_content(system: Union[str, List[Dict]]) -> str:
@@ -473,6 +506,8 @@ def convert_response(openai_response: Dict[str, Any], original_model: str) -> Di
         "usage": {
             "input_tokens": usage.get("prompt_tokens", 0),
             "output_tokens": usage.get("completion_tokens", 0),
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
         },
     }
 
@@ -489,6 +524,9 @@ async def convert_stream(
     message_started = False
     model_name = model
     stream_ended = False
+    chunk_count = 0
+    cache_creation_input_tokens = 0
+    cache_read_input_tokens = 0
 
     async for raw_chunk in openai_stream:
         if not raw_chunk or not raw_chunk.strip():
@@ -525,7 +563,8 @@ async def convert_stream(
             if chunk.get("usage"):
                 input_tokens = chunk["usage"].get("prompt_tokens", 0)
             message_started = True
-            yield f"event: message_start\ndata: {json.dumps({'type': 'message_start', 'message': {'id': msg_id, 'type': 'message', 'role': 'assistant', 'model': model_name, 'content': [], 'stop_reason': None, 'stop_sequence': None, 'usage': {'input_tokens': input_tokens, 'output_tokens': 0}}}, ensure_ascii=False)}\n\n"
+            yield f"event: message_start\ndata: {json.dumps({'type': 'message_start', 'message': {'id': msg_id, 'type': 'message', 'role': 'assistant', 'model': model_name, 'content': [], 'stop_reason': None, 'stop_sequence': None, 'usage': {'input_tokens': input_tokens, 'output_tokens': 0, 'cache_creation_input_tokens': 0, 'cache_read_input_tokens': 0}}}, ensure_ascii=False)}\n\n"
+            yield f"event: ping\ndata: {json.dumps({'type': 'ping'})}\n\n"
 
         choices = chunk.get("choices", [])
         if not choices:
@@ -533,7 +572,12 @@ async def convert_stream(
                 u = chunk["usage"]
                 input_tokens = u.get("prompt_tokens", input_tokens)
                 output_tokens = u.get("completion_tokens", output_tokens)
+                cache_creation_input_tokens = u.get("prompt_tokens_details", {}).get("cached_tokens", cache_creation_input_tokens) if isinstance(u.get("prompt_tokens_details"), dict) else cache_creation_input_tokens
             continue
+
+        chunk_count += 1
+        if chunk_count % 20 == 0:
+            yield f"event: ping\ndata: {json.dumps({'type': 'ping'})}\n\n"
 
         choice = choices[0]
         delta = choice.get("delta", {})
@@ -569,7 +613,7 @@ async def convert_stream(
                 content_block_index += 1
 
             stop_reason = map_stop_reason(finish_reason)
-            yield f"event: message_delta\ndata: {json.dumps({'type': 'message_delta', 'delta': {'stop_reason': stop_reason, 'stop_sequence': None}, 'usage': {'output_tokens': output_tokens}}, ensure_ascii=False)}\n\n"
+            yield f"event: message_delta\ndata: {json.dumps({'type': 'message_delta', 'delta': {'stop_reason': stop_reason, 'stop_sequence': None}, 'usage': {'output_tokens': output_tokens, 'cache_creation_input_tokens': cache_creation_input_tokens, 'cache_read_input_tokens': cache_read_input_tokens}}, ensure_ascii=False)}\n\n"
             yield f"event: message_stop\ndata: {json.dumps({'type': 'message_stop'})}\n\n"
             stream_ended = True
 

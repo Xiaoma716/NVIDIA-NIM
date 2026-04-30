@@ -172,8 +172,10 @@ def test_models_conversion():
         {"id": "meta/llama-3.1-8b-instruct", "object": "model", "created": 1235, "owned_by": "meta"},
     ]
     result = convert_models_to_anthropic(openai_models)
-    assert result["object"] == "list"
+    assert "data" in result
     assert len(result["data"]) == 2
+    assert result["data"][0]["type"] == "model"
+    assert "has_more" in result
     print("[PASS] Models conversion")
 
 

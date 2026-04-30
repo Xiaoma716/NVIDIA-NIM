@@ -150,6 +150,19 @@ class AnthropicTool(BaseModel):
     model_config = {"extra": "allow"}
 
 
+class AnthropicThinkingConfig(BaseModel):
+    type: str = "enabled"
+    budget_tokens: Optional[int] = None
+    display: Optional[str] = None
+    model_config = {"extra": "allow"}
+
+
+class AnthropicToolChoice(BaseModel):
+    type: str = "auto"
+    name: Optional[str] = None
+    model_config = {"extra": "allow"}
+
+
 class AnthropicRequest(BaseModel):
     model: str
     messages: List[AnthropicMessage]
@@ -157,9 +170,12 @@ class AnthropicRequest(BaseModel):
     system: Optional[Union[str, List[AnthropicContentBlock]]] = None
     temperature: Optional[float] = None
     top_p: Optional[float] = None
+    top_k: Optional[int] = None
     stream: Optional[bool] = False
     stop_sequences: Optional[List[str]] = None
     tools: Optional[List[AnthropicTool]] = None
+    tool_choice: Optional[Union[str, AnthropicToolChoice]] = None
+    thinking: Optional[AnthropicThinkingConfig] = None
     metadata: Optional[Dict] = None
     model_config = {"extra": "allow"}
 
@@ -467,6 +483,10 @@ async def anthropic_count_tokens(request: AnthropicRequest, state: AppState = De
                         text_parts.append(anthropic_adapter._extract_tool_result_text(block))
                     elif block.get("type") == "tool_use":
                         text_parts.append(json.dumps(block.get("input", {}), ensure_ascii=False))
+                    elif block.get("type") == "thinking":
+                        thinking_text = block.get("thinking", "")
+                        if thinking_text:
+                            text_parts.append(thinking_text)
                     else:
                         text_parts.append(json.dumps(block, ensure_ascii=False))
                 else:
@@ -515,6 +535,8 @@ async def anthropic_messages(request: AnthropicRequest, state: AppState = Depend
         extra_params["stop"] = openai_req["stop"]
     if "tools" in openai_req:
         extra_params["tools"] = openai_req["tools"]
+    if "tool_choice" in openai_req:
+        extra_params["tool_choice"] = openai_req["tool_choice"]
 
     context_window = anthropic_adapter.get_context_window(original_model)
     messages, was_truncated, removed_tokens = anthropic_adapter.truncate_messages(

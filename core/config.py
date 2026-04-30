@@ -116,5 +116,17 @@ class _Config:
     def anthropic_truncation_buffer_ratio(self) -> float:
         return self.anthropic.get("truncation_buffer_ratio", 0.10)
 
+    @property
+    def anthropic_enable_thinking(self) -> bool:
+        return self.anthropic.get("enable_thinking", True)
+
+    @property
+    def anthropic_default_thinking_budget(self) -> int:
+        return self.anthropic.get("default_thinking_budget", 1024)
+
+    @property
+    def anthropic_enable_tool_choice(self) -> bool:
+        return self.anthropic.get("enable_tool_choice", True)
+
 
 cfg = _Config()

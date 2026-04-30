@@ -20,8 +20,9 @@ from core.write_buffer import WriteBuffer
 from api.router import router, init_app_state
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
@@ -199,6 +200,25 @@ def create_app() -> FastAPI:
         docs_url="/docs",
         lifespan=lifespan,
     )
+
+    @app.exception_handler(HTTPException)
+    async def anthropic_error_handler(request: Request, exc: HTTPException):
+        from core import anthropic_adapter
+        if request.url.path.startswith("/v1/messages") or request.url.path.startswith("/v1/models"):
+            if isinstance(exc.detail, dict) and exc.detail.get("type") == "error":
+                return JSONResponse(
+                    status_code=exc.status_code,
+                    content=exc.detail,
+                )
+            err = anthropic_adapter.convert_error(exc.status_code, exc.detail)
+            return JSONResponse(
+                status_code=exc.status_code,
+                content=err,
+            )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+        )
 
     @app.middleware("http")
     async def log_requests(request: Request, call_next):
