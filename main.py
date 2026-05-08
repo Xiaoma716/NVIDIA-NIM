@@ -13,7 +13,7 @@ from core.config import cfg
 from core.key_pool import KeyPool, KeyHealthChecker
 from core.balancer import LoadBalancer
 from core.proxy import NvidiaProxy
-from core.model_manager import ModelManager
+from core.model_manager import ModelManager, ModelSyncScheduler
 from core.stats_manager import StatsManager
 from core.database import init_db
 from core.write_buffer import WriteBuffer
@@ -162,10 +162,13 @@ def create_app() -> FastAPI:
         base_url=cfg.base_url,
     )
 
+    model_sync_scheduler = ModelSyncScheduler(model_manager=model_manager)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await model_manager.initialize()
         await health_checker.start()
+        await model_sync_scheduler.start()
         await write_buffer.start()
         summary = key_pool.get_pool_summary()
         model_stats = model_manager.get_stats()
@@ -183,6 +186,7 @@ def create_app() -> FastAPI:
         logger.info(f"  📈 统计追踪  : 已启用（24h窗口 + SQLite持久化）")
         logger.info(f"  [DB] 数据库    : SQLite (WAL模式, 批量写入5s)")
         logger.info(f"  [HC] 健康检查  : 已启用（每1小时）")
+        logger.info(f"  [MS] 模型同步  : 已启用（每1小时，自动移除下架模型）")
         anthropic_default = cfg.anthropic_default_model
         anthropic_mapping_count = len(cfg.anthropic_model_mapping)
         logger.info(f"  [AT] Anthropic : /v1/messages (映射 {anthropic_mapping_count} 个模型)")
@@ -190,6 +194,7 @@ def create_app() -> FastAPI:
         logger.info("=" * 55)
         yield
         await write_buffer.stop()
+        await model_sync_scheduler.stop()
         await health_checker.stop()
         await shared_http_client.aclose()
         logger.info("服务已关闭")

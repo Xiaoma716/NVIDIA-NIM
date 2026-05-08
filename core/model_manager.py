@@ -8,6 +8,7 @@
 
 import json
 import time
+import asyncio
 import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -87,6 +88,9 @@ class ModelManager:
         self.last_fetch_status: str = "未拉取"
         self._http_client: Optional[httpx.AsyncClient] = None
 
+        # 最近一次同步中被移除的模型ID列表
+        self._removed_models: List[str] = []
+
     @property
     def default_model(self) -> str:
         return cfg.default_model
@@ -165,12 +169,13 @@ class ModelManager:
                     continue
 
                 new_count = self._merge_models(raw_models)
+                removed_count = len(self._removed_models)
 
                 self.last_fetch_time = time.time()
-                self.last_fetch_status = f"成功 (共{len(raw_models)}个，新增{new_count}个)"
+                self.last_fetch_status = f"成功 (共{len(raw_models)}个，新增{new_count}个，移除{removed_count}个)"
                 logger.info(
                     f"NVIDIA 模型列表拉取成功 ✅ | "
-                    f"Key: Key-{key_index + 1} | 总计: {len(raw_models)} 个 | 新增: {new_count} 个"
+                    f"Key: Key-{key_index + 1} | 总计: {len(raw_models)} 个 | 新增: {new_count} 个 | 移除: {removed_count} 个"
                 )
 
                 self._save_state_to_file()
@@ -188,9 +193,25 @@ class ModelManager:
         return False
 
     def _merge_models(self, raw_models: List[Dict]) -> int:
-        """将拉取到的模型合并到本地字典，返回新增数量"""
+        """
+        将拉取到的模型合并到本地字典，同时移除已下架的模型
+        返回新增数量
+        """
         new_count = 0
+        remote_ids = set()
+        for item in raw_models:
+            model_id = item.get("id", "")
+            if not model_id:
+                continue
+            remote_ids.add(model_id)
+
+        removed_ids = []
         with self._lock:
+            for model_id in list(self._models.keys()):
+                if model_id not in remote_ids:
+                    del self._models[model_id]
+                    removed_ids.append(model_id)
+
             for item in raw_models:
                 model_id = item.get("id", "")
                 if not model_id:
@@ -205,6 +226,14 @@ class ModelManager:
                     new_count += 1
                 else:
                     self._models[model_id].owned_by = item.get("owned_by", "nvidia")
+
+        if removed_ids:
+            logger.warning(
+                f"检测到 {len(removed_ids)} 个模型已从 NVIDIA NIM 下架，已自动移除: "
+                f"{removed_ids}"
+            )
+
+        self._removed_models = removed_ids
         return new_count
 
     # ------------------------------------------------------------------
@@ -385,3 +414,51 @@ class ModelManager:
             if model_id.startswith(prefix):
                 return owner
         return "nvidia"
+
+
+class ModelSyncScheduler:
+    """
+    模型定时同步器
+    定期从 NVIDIA API 拉取模型列表，自动同步新增和下架的模型
+    """
+
+    SYNC_INTERVAL = 3600
+
+    def __init__(self, model_manager: ModelManager):
+        self.model_manager = model_manager
+        self._task: Optional[asyncio.Task] = None
+        self._running = False
+
+    async def start(self):
+        if self._running:
+            return
+        self._running = True
+        self._task = asyncio.create_task(self._sync_loop())
+        logger.info(f"🔄 模型定时同步器已启动 (间隔: {self.SYNC_INTERVAL}s)")
+
+    async def stop(self):
+        self._running = False
+        if self._task and not self._task.done():
+            self._task.cancel()
+        logger.info("模型定时同步器已停止")
+
+    async def _sync_loop(self):
+        try:
+            while self._running:
+                await asyncio.sleep(self.SYNC_INTERVAL)
+                if not self._running:
+                    break
+                logger.info("🔄 开始定时模型同步...")
+                success = await self.model_manager.fetch_from_nvidia()
+                if success:
+                    stats = self.model_manager.get_stats()
+                    logger.info(
+                        f"🔄 定时模型同步完成 | 总计: {stats['total_models']} 个 | "
+                        f"启用: {stats['enabled_models']} 个"
+                    )
+                else:
+                    logger.warning("🔄 定时模型同步失败，下次将继续尝试")
+        except asyncio.CancelledError:
+            logger.debug("模型同步循环被取消")
+        except Exception as e:
+            logger.error(f"模型同步循环异常: {e}")

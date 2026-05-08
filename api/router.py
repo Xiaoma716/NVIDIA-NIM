@@ -330,9 +330,16 @@ async def disable_all_models(state: AppState = Depends(get_app_state)):
 @router.post("/api/models/fetch", tags=["模型管理"])
 async def fetch_models(state: AppState = Depends(get_app_state)):
     success = await state.model_manager.fetch_from_nvidia()
+    removed = state.model_manager._removed_models if success else []
+    message = "拉取成功"
+    if success and removed:
+        message = f"拉取成功，移除了 {len(removed)} 个已下架模型"
+    elif not success:
+        message = "拉取失败，已保留原有列表"
     return {
         "success": success,
-        "message": "拉取成功" if success else "拉取失败，已保留原有列表",
+        "message": message,
+        "removed_models": removed,
         "stats": state.model_manager.get_stats(),
     }
 
